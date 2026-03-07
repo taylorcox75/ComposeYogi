@@ -135,20 +135,8 @@ export function Transport({
     // Find armed track
     const armedTrack = tracks.find(t => t.armed);
 
-    // Initialize recording manager when audio is ready (don't block on errors)
-    useEffect(() => {
-        if (isAudioReady && !isRecorderReady && !recorderError) {
-            recordingManager.initialize()
-                .then(() => {
-                    setIsRecorderReady(true);
-                    setRecorderError(null);
-                })
-                .catch((err) => {
-                    // Don't set error yet - user hasn't tried to record
-                    console.warn('[Transport] Recorder not ready (mic permission needed):', err.message);
-                });
-        }
-    }, [isAudioReady, isRecorderReady, recorderError]);
+    // Recorder is initialized on-demand in handleRecord (not eagerly on mount)
+    // to avoid triggering microphone permission before the user requests recording.
 
     // Sync local BPM with project
     useEffect(() => {
@@ -229,7 +217,9 @@ export function Transport({
     // Mobile: compact single-row transport with only essential controls
     if (isMobile) {
         return (
-            <header className="flex h-transport items-center border-b border-border bg-card px-2 gap-1 overflow-x-auto">
+            <header className="flex h-transport items-center border-b border-border bg-card overflow-x-auto">
+                {/* min-w-max prevents flex items from shrinking/clipping on the right */}
+                <div className="flex items-center gap-1 px-2 min-w-max">
                 {/* Play/Pause */}
                 <Button
                     variant={isPlaying ? "transport-active" : "transport"}
@@ -296,6 +286,7 @@ export function Transport({
                 {/* Theme toggle */}
                 <ThemeToggleButton />
 
+                </div>
                 <KeyboardShortcutsModal
                     isOpen={showShortcutsModal}
                     onClose={() => setShowShortcutsModal(false)}

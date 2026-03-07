@@ -22,7 +22,9 @@ const nextConfig: NextConfig = {
         formats: ['image/avif', 'image/webp'],
     },
 
-    // Headers for audio worklet and SharedArrayBuffer support
+    // Security headers (COOP prevents cross-origin popup attacks)
+    // Note: COEP (credentialless) was removed — SharedArrayBuffer is not used
+    // and COEP blocks audio loading on iOS Safari.
     async headers() {
         return [
             {
@@ -31,10 +33,6 @@ const nextConfig: NextConfig = {
                     {
                         key: 'Cross-Origin-Opener-Policy',
                         value: 'same-origin',
-                    },
-                    {
-                        key: 'Cross-Origin-Embedder-Policy',
-                        value: 'credentialless',
                     },
                 ],
             },
