@@ -110,6 +110,9 @@ class AudioRecorder {
 
         // Request microphone permission
         try {
+            if (!navigator.mediaDevices?.getUserMedia) {
+                throw new Error('getUserMedia not supported in this browser/context');
+            }
             this.audioStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     echoCancellation: false, // Disable for recording instruments
