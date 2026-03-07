@@ -138,13 +138,16 @@ export function Transport({
     // Initialize recording manager when audio is ready (don't block on errors)
     useEffect(() => {
         if (isAudioReady && !isRecorderReady && !recorderError) {
+            if (!navigator.mediaDevices?.getUserMedia) {
+                console.warn('[Transport] Recorder unavailable: mediaDevices API not present');
+                return;
+            }
             recordingManager.initialize()
                 .then(() => {
                     setIsRecorderReady(true);
                     setRecorderError(null);
                 })
                 .catch((err) => {
-                    // Don't set error yet - user hasn't tried to record
                     console.warn('[Transport] Recorder not ready (mic permission needed):', err.message);
                 });
         }
@@ -197,6 +200,10 @@ export function Transport({
 
             // Initialize recorder on-demand if not ready
             if (!isRecorderReady) {
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    setRecorderError('Recording unavailable in this browser');
+                    return;
+                }
                 try {
                     await recordingManager.initialize();
                     setIsRecorderReady(true);
