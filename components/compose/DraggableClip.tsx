@@ -107,10 +107,10 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
     const clipLeft = visualStartBar * pixelsPerBar;
     const ghostLeft = ghostStartBar !== null ? ghostStartBar * pixelsPerBar : null;
 
-    // Handle click - selection is handled in mouseDown, this just stops propagation
+    // Handle click - selection is handled in pointerDown, this just stops propagation
     const handleClick = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
-        // Selection handled in handleMouseDown to support Shift+click
+        // Selection handled in handlePointerDown to support Shift+click
     }, []);
 
     // Handle double-click to open editor
@@ -119,8 +119,8 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
         openEditor(clip.id);
     }, [clip.id, openEditor]);
 
-    // Determine drag mode based on click position
-    const getDragMode = useCallback((e: React.MouseEvent): DragMode => {
+    // Determine drag mode based on pointer position
+    const getDragMode = useCallback((e: React.PointerEvent): DragMode => {
         const rect = e.currentTarget.getBoundingClientRect();
         const x = e.clientX - rect.left;
 
@@ -132,10 +132,13 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
         return 'move';
     }, []);
 
-    // Handle mouse down - start drag or resize
-    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Handle pointer down - start drag or resize (works for both mouse and touch)
+    const handlePointerDown = useCallback((e: React.PointerEvent) => {
         e.stopPropagation();
         e.preventDefault(); // Prevent any default browser behavior
+
+        // Capture pointer so all subsequent events are sent here even if pointer leaves the element
+        e.currentTarget.setPointerCapture(e.pointerId);
 
         // Selection logic:
         // - Shift+click: toggle in/out of selection
@@ -167,11 +170,11 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
         }
     }, [clip.id, clip.startBar, clip.lengthBars, selectClip, getDragMode, selectedClipIds]);
 
-    // Handle drag/resize move and end
+    // Handle drag/resize move and end (pointer events work for both mouse and touch)
     useEffect(() => {
         if (!dragMode) return;
 
-        const handleMouseMove = (e: MouseEvent) => {
+        const handlePointerMove = (e: PointerEvent) => {
             if (!dragStartRef.current) return;
 
             const deltaX = e.clientX - dragStartRef.current.x;
@@ -221,7 +224,7 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
             }
         };
 
-        const handleMouseUp = () => {
+        const handlePointerUp = () => {
             if (dragStartRef.current) {
                 if (dragMode === 'move') {
                     const deltaBars = dragOffset / pixelsPerBar;
@@ -298,17 +301,31 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
             setMultiDragOffset(0); // Clear shared offset
         };
 
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
+        // pointercancel fires on iOS when the system interrupts the gesture (e.g. incoming call)
+        // Without this, the clip stays in a stuck dragging state
+        const handlePointerCancel = () => {
+            dragStartRef.current = null;
+            setDragMode(null);
+            setDragOffset(0);
+            setResizeOffset(0);
+            setIsDuplicating(false);
+            setIsLeadingDrag(false);
+            setMultiDragOffset(0);
+        };
+
+        window.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', handlePointerUp);
+        window.addEventListener('pointercancel', handlePointerCancel);
 
         return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('pointermove', handlePointerMove);
+            window.removeEventListener('pointerup', handlePointerUp);
+            window.removeEventListener('pointercancel', handlePointerCancel);
         };
     }, [dragMode, dragOffset, resizeOffset, pixelsPerBar, beatsPerBar, clip.id, clip.trimStart, clip.trimEnd, updateClip, resizeClip, duplicateClip, selectClip, selectedClipIds, moveClipsByDelta, isLeadingDrag, setMultiDragOffset, audioSourceInfo]);
 
     // Get cursor style based on hover position
-    const getCursorStyle = useCallback((e: React.MouseEvent): string => {
+    const getCursorStyle = useCallback((e: React.PointerEvent): string => {
         const rect = e.currentTarget.getBoundingClientRect();
         const x = e.clientX - rect.left;
 
@@ -320,7 +337,7 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
 
     const [cursorStyle, setCursorStyle] = useState('grab');
 
-    const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    const handlePointerMoveOnClip = useCallback((e: React.PointerEvent) => {
         if (!dragMode) {
             setCursorStyle(getCursorStyle(e));
         }
@@ -366,10 +383,10 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
                 }}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseEnter={() => setIsHovered(true)}
-                onMouseLeave={() => setIsHovered(false)}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMoveOnClip}
+                onPointerEnter={() => setIsHovered(true)}
+                onPointerLeave={() => setIsHovered(false)}
             >
                 {/* Left resize handle - visible on hover/select */}
                 <div

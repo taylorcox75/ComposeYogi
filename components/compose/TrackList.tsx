@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { useProjectStore, useUIStore, usePlaybackStore } from '@/lib/store';
 import { playbackRefs } from '@/lib/store/playback';
+import { useIsMobile } from '@/hooks';
 import { Button } from '@/components/ui';
 import {
     Tooltip,
@@ -537,6 +538,7 @@ function getDemoNotesForInstrument(instrumentId: string): Array<{ pitch: number;
 }
 
 export function TrackList() {
+    const isMobile = useIsMobile();
     const { resolvedTheme } = useTheme();
     const project = useProjectStore((s) => s.project);
     const addTrack = useProjectStore((s) => s.addTrack);
@@ -852,6 +854,7 @@ export function TrackList() {
                                     key={track.id}
                                     track={track}
                                     isSelected={selectedTrackId === track.id}
+                                    isMobile={isMobile}
                                     onSelect={() => selectTrack(track.id)}
                                     onMuteToggle={() => handleMuteToggle(track)}
                                     onSoloToggle={() => handleSoloToggle(track)}
@@ -954,6 +957,7 @@ export function TrackList() {
 interface TrackHeaderProps {
     track: Track;
     isSelected: boolean;
+    isMobile: boolean;
     onSelect: () => void;
     onMuteToggle: () => void;
     onSoloToggle: () => void;
@@ -965,6 +969,7 @@ interface TrackHeaderProps {
 function _TrackHeader({
     track,
     isSelected,
+    isMobile: _isMobile,
     onSelect,
     onMuteToggle,
     onSoloToggle,
@@ -1161,7 +1166,7 @@ function SortableTrackHeader(props: TrackHeaderProps) {
                         <Headphones className="h-3.5 w-3.5" />
                     </Button>
 
-                    {props.track.type === 'audio' && (
+                    {props.track.type === 'audio' && !props.isMobile && (
                         <Button
                             variant="ghost"
                             size="icon"
@@ -1188,8 +1193,8 @@ function SortableTrackHeader(props: TrackHeaderProps) {
                     />
                 </div>
 
-                {/* Active Effects Indicators */}
-                {props.track.effects && props.track.effects.filter((fx) => fx.active).length > 0 && (
+                {/* Active Effects Indicators — hidden on mobile to save space */}
+                {!props.isMobile && props.track.effects && props.track.effects.filter((fx) => fx.active).length > 0 && (
                     <TooltipProvider delayDuration={200}>
                         <div className="flex items-center gap-1 overflow-hidden">
                             {props.track.effects.filter((fx) => fx.active).slice(0, 3).map((fx) => (

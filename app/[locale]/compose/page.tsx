@@ -16,7 +16,7 @@ import { TrackList } from '@/components/compose/TrackList';
 import { AudioVisualizer, VisualizerCollapsedBar } from '@/components/compose/AudioVisualizer';
 import { LatencyCalibrationModal } from '@/components/compose/LatencyCalibrationModal';
 import { ProjectSelector } from '@/components/compose/ProjectSelector';
-import { useAutosave } from '@/hooks';
+import { useAutosave, useIsMobile } from '@/hooks';
 import { listProjects, loadProject, loadAudioTakesForClip } from '@/lib/persistence';
 import { loadDemoTemplate } from '@/lib/templates';
 
@@ -52,6 +52,9 @@ function ComposePageContent() {
     // Autosave hook
     const { status: saveStatus, statusText: saveStatusText } = useAutosave();
 
+    // Mobile detection
+    const isMobile = useIsMobile();
+
     // Store hooks
     const project = useProjectStore((s) => s.project);
     const createProject = useProjectStore((s) => s.createProject);
@@ -73,6 +76,15 @@ function ComposePageContent() {
     const zoomOut = useUIStore((s) => s.zoomOut);
     const selectedClipIds = useUIStore((s) => s.selectedClipIds);
     const clearSelection = useUIStore((s) => s.clearSelection);
+
+    // On mobile: auto-close panels to give the timeline maximum space
+    useEffect(() => {
+        if (!isMobile) return;
+        if (browserOpen) toggleBrowser();
+        if (inspectorOpen) toggleInspector();
+        if (visualizerOpen) toggleVisualizer();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isMobile]); // Runs once when mobile detection resolves; intentionally omits toggle fns
 
     // Initialize project from IndexedDB or create new
     useEffect(() => {

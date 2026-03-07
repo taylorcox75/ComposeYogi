@@ -92,6 +92,9 @@ export const viewport: Viewport = {
     maximumScale: 1,
     userScalable: false,
     themeColor: '#f97316',
+    interactiveWidget: 'overlays-content',
+    // iOS virtual keyboard overlays the content instead of resizing the layout,
+    // preventing jarring reflow when the keyboard appears
 };
 
 export function generateStaticParams() {

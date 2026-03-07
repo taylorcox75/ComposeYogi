@@ -59,6 +59,7 @@ import {
 import { Slider } from '@/components/ui/slider';
 import Link from 'next/link';
 import type { SaveStatus } from '@/lib/persistence/autosave';
+import { useIsMobile } from '@/hooks';
 
 interface TransportProps {
     onPlayPause: () => void;
@@ -222,7 +223,89 @@ export function Transport({
         }
     }, [isAudioReady, isRecording, armedTrack, countInBars, isRecorderReady]);
 
+    const isMobile = useIsMobile();
+
     if (!project) return null;
+
+    // Mobile: compact single-row transport with only essential controls
+    if (isMobile) {
+        return (
+            <header className="flex h-transport items-center border-b border-border bg-card px-2 gap-1 overflow-x-auto">
+                {/* Play/Pause */}
+                <Button
+                    variant={isPlaying ? "transport-active" : "transport"}
+                    size="icon-sm"
+                    onClick={onPlayPause}
+                >
+                    {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                </Button>
+
+                {/* Stop */}
+                <Button variant="transport" size="icon-sm" onClick={onStop}>
+                    <Square className="h-3 w-3" />
+                </Button>
+
+                {/* Return to start */}
+                <Button variant="transport" size="icon-sm" onClick={onStop}>
+                    <SkipBack className="h-4 w-4" />
+                </Button>
+
+                {/* Loop */}
+                <Button
+                    variant={isLooping ? "transport-active" : "transport"}
+                    size="icon-sm"
+                    onClick={toggleLoop}
+                >
+                    <Repeat className="h-4 w-4" />
+                </Button>
+
+                <Separator orientation="vertical" className="h-5 mx-1" />
+
+                {/* Record */}
+                <Button
+                    variant={isRecording ? "transport-record-active" : "transport-record"}
+                    size="icon-sm"
+                    onClick={handleRecord}
+                    disabled={!isAudioReady || (!isRecording && !armedTrack)}
+                    className={isCountingIn ? 'animate-pulse' : ''}
+                >
+                    <Circle className="h-3 w-3" fill={isRecording ? 'currentColor' : 'none'} />
+                </Button>
+
+                <Separator orientation="vertical" className="h-5 mx-1" />
+
+                {/* BPM display (read-only on mobile) */}
+                <div className="flex items-center gap-1 bg-background rounded-md border border-border/50 px-2 py-1">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">BPM</span>
+                    <span className="font-mono text-sm tabular-nums">{localBpm}</span>
+                </div>
+
+                <Separator orientation="vertical" className="h-5 mx-1" />
+
+                {/* Zoom out */}
+                <Button variant="transport" size="icon-sm" onClick={zoomOut}>
+                    <Minus className="h-3.5 w-3.5" />
+                </Button>
+
+                {/* Zoom in */}
+                <Button variant="transport" size="icon-sm" onClick={zoomIn}>
+                    <ZoomIn className="h-3.5 w-3.5" />
+                </Button>
+
+                <Separator orientation="vertical" className="h-5 mx-1" />
+
+                {/* Theme toggle */}
+                <ThemeToggleButton />
+
+                <KeyboardShortcutsModal
+                    isOpen={showShortcutsModal}
+                    onClose={() => setShowShortcutsModal(false)}
+                />
+                <ExportModal isOpen={showExportModal} onClose={() => setShowExportModal(false)} />
+                <ImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} />
+            </header>
+        );
+    }
 
     return (
         <header className="flex h-transport items-center border-b border-border bg-card">
