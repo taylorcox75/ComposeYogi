@@ -98,7 +98,8 @@ const config: Config = {
                 transport: '48px',
                 browser: '240px',
                 inspector: '260px',
-                editor: '35vh'
+                editor: '35vh',
+                'bottom-nav': '52px'
             },
             transitionDuration: {
                 '120': '120ms',

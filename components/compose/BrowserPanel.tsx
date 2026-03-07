@@ -664,7 +664,7 @@ export function BrowserPanel() {
     };
 
     return (
-        <aside className="flex w-browser flex-col border-r border-border bg-surface">
+        <aside className="flex w-browser flex-col border-r border-border bg-surface mobile-panel-overlay mobile-panel-overlay-left max-md:w-[85vw] max-md:max-w-[320px]">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
                 <h2 className="text-sm font-semibold">Browser</h2>

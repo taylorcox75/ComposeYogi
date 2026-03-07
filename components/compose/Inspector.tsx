@@ -54,7 +54,7 @@ export function Inspector() {
     const selectedClip = project?.clips.find((c) => c.id === selectedClipId);
 
     return (
-        <aside className="flex w-inspector flex-col border-l border-border bg-card">
+        <aside className="flex w-inspector flex-col border-l border-border bg-card mobile-panel-overlay mobile-panel-overlay-right max-md:w-[85vw] max-md:max-w-[320px]">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
                 <h2 className="text-sm font-semibold">Inspector</h2>

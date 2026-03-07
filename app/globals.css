@@ -479,6 +479,65 @@ body {
     text-orientation: mixed;
 }
 
+/* ==========================================
+   Mobile overlay panels (<768px)
+   Desktop is completely unaffected.
+   ========================================== */
+
+@media (max-width: 767px) {
+    .mobile-panel-overlay {
+        position: fixed !important;
+        z-index: 40;
+        width: 85vw !important;
+        max-width: 320px;
+        top: 0;
+        bottom: 0;
+        transition: transform 200ms ease-out;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .mobile-panel-overlay-left {
+        left: 0;
+    }
+
+    .mobile-panel-overlay-right {
+        right: 0;
+        box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .mobile-editor-overlay {
+        position: fixed !important;
+        z-index: 40;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 55vh !important;
+        max-height: 55vh !important;
+        box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .mobile-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 35;
+        background-color: rgba(0, 0, 0, 0.5);
+        animation: fadeIn 150ms ease-out;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    .mobile-bottom-nav {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .mobile-safe-top {
+        padding-top: env(safe-area-inset-top, 0px);
+    }
+}
+
 @layer base {
     * {
         @apply border-border;

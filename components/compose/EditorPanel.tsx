@@ -49,7 +49,7 @@ export function EditorPanel() {
     }, [selectedClip?.id, selectedClip?.type]);
 
     return (
-        <div className="flex h-editor flex-col border-t border-border bg-surface">
+        <div className="flex h-editor flex-col border-t border-border bg-surface mobile-editor-overlay">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-3 py-1">
                 <div className="flex items-center gap-1">

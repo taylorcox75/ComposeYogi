@@ -16,6 +16,7 @@ import { TrackList } from '@/components/compose/TrackList';
 import { AudioVisualizer, VisualizerCollapsedBar } from '@/components/compose/AudioVisualizer';
 import { LatencyCalibrationModal } from '@/components/compose/LatencyCalibrationModal';
 import { ProjectSelector } from '@/components/compose/ProjectSelector';
+import { MobileBottomNav } from '@/components/compose/MobileBottomNav';
 import { useAutosave } from '@/hooks';
 import { listProjects, loadProject, loadAudioTakesForClip } from '@/lib/persistence';
 import { loadDemoTemplate } from '@/lib/templates';
@@ -59,6 +60,7 @@ function ComposePageContent() {
     const deleteClips = useProjectStore((s) => s.deleteClips);
     const { isPlaying, play, pause, stop } = usePlaybackStore();
     // Use actual state properties, not computed getters (getters aren't reactive in Zustand)
+    const isMobile = useUIStore((s) => s.isMobile);
     const browserOpen = useUIStore((s) => s.browserOpen);
     const inspectorOpen = useUIStore((s) => s.inspectorOpen);
     const editorOpen = useUIStore((s) => s.editorOpen);
@@ -333,9 +335,21 @@ function ComposePageContent() {
             />
 
             {/* Main content area */}
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-1 overflow-hidden max-md:pb-bottom-nav">
+                {/* Mobile backdrop when a panel is open */}
+                {isMobile && (browserOpen || inspectorOpen || editorOpen) && (
+                    <div
+                        className="mobile-backdrop"
+                        onClick={() => {
+                            if (browserOpen) toggleBrowser();
+                            if (inspectorOpen) toggleInspector();
+                            if (editorOpen) toggleEditor();
+                        }}
+                    />
+                )}
+
                 {/* Left: Browser Panel */}
-                {browserOpen ? <BrowserPanel /> : <BrowserCollapsedBar />}
+                {browserOpen ? <BrowserPanel /> : !isMobile && <BrowserCollapsedBar />}
 
                 {/* Center: Timeline + Tracks */}
                 <div className="flex flex-1 flex-col overflow-hidden">
@@ -343,15 +357,18 @@ function ComposePageContent() {
                     <TrackList />
 
                     {/* Audio Visualizer */}
-                    {visualizerOpen ? <AudioVisualizer /> : <VisualizerCollapsedBar />}
+                    {visualizerOpen ? <AudioVisualizer /> : !isMobile && <VisualizerCollapsedBar />}
 
                     {/* Bottom: Editor Panel (Piano Roll / Step Sequencer) */}
-                    {editorOpen ? <EditorPanel /> : <EditorCollapsedBar />}
+                    {editorOpen ? <EditorPanel /> : !isMobile && <EditorCollapsedBar />}
                 </div>
 
                 {/* Right: Inspector Panel */}
-                {inspectorOpen ? <Inspector /> : <InspectorCollapsedBar />}
+                {inspectorOpen ? <Inspector /> : !isMobile && <InspectorCollapsedBar />}
             </div>
+
+            {/* Mobile bottom navigation */}
+            {isMobile && <MobileBottomNav />}
 
             {/* Latency Calibration Modal */}
             <LatencyCalibrationModal

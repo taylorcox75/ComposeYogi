@@ -2,18 +2,17 @@
 
 import { useEffect } from 'react';
 import { audioEngine } from '@/lib/audio';
+import { useMobileDetection } from '@/hooks';
 
 interface ComposeLayoutProps {
     children: React.ReactNode;
 }
 
 export default function ComposeLayout({ children }: ComposeLayoutProps) {
-    // Initialize audio engine on mount
+    useMobileDetection();
+
     useEffect(() => {
-        // Audio context will be initialized on first user interaction
-        // due to browser autoplay policies
         return () => {
-            // Cleanup on unmount
             audioEngine.stop();
         };
     }, []);

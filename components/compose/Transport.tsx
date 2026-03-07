@@ -225,14 +225,14 @@ export function Transport({
     if (!project) return null;
 
     return (
-        <header className="flex h-transport items-center border-b border-border bg-card">
+        <header className="flex h-transport items-center border-b border-border bg-card max-md:h-auto max-md:flex-wrap max-md:px-2 max-md:py-1.5 max-md:gap-1">
             {/* Left: Logo + Project name + Save status */}
-            <div className="flex items-center gap-3 px-4">
+            <div className="flex items-center gap-3 px-4 max-md:gap-2 max-md:px-0">
                 <Link href="/" className="flex items-center gap-2 text-accent hover:opacity-80 transition-opacity">
                     <MusicWave barCount={4} color="accent" className="h-5" />
-                    <span className="text-sm font-semibold tracking-tight">ComposeYogi</span>
+                    <span className="text-sm font-semibold tracking-tight max-md:hidden">ComposeYogi</span>
                 </Link>
-                <Separator orientation="vertical" className="h-6" />
+                <Separator orientation="vertical" className="h-6 max-md:hidden" />
 
                 {/* Project name - clickable to open projects */}
                 <Tooltip>
@@ -253,7 +253,7 @@ export function Transport({
                 {/* Save status indicator */}
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground max-md:hidden">
                             {saveStatus === 'saving' && (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
                             )}
@@ -278,7 +278,7 @@ export function Transport({
             </div>
 
             {/* Center: Transport controls */}
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex-1 flex items-center justify-center max-md:justify-start max-md:flex-none">
                 <div className="flex items-center bg-background/50 rounded-lg px-1 py-1 gap-0.5">
                     {/* Navigation controls */}
                     <div className="flex items-center">
@@ -419,10 +419,10 @@ export function Transport({
                     </Tooltip>
                 </div>
 
-                <Separator orientation="vertical" className="h-6 mx-4" />
+                <Separator orientation="vertical" className="h-6 mx-4 max-md:hidden" />
 
                 {/* Time display */}
-                <div className="flex items-center bg-background rounded-md border border-border/50">
+                <div className="flex items-center bg-background rounded-md border border-border/50 max-md:hidden">
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <div className="px-3 py-1.5 border-r border-border/50 cursor-default">
@@ -449,10 +449,10 @@ export function Transport({
                     </Tooltip>
                 </div>
 
-                <Separator orientation="vertical" className="h-6 mx-4" />
+                <Separator orientation="vertical" className="h-6 mx-4 max-md:hidden" />
 
                 {/* Tempo & Time Signature */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 max-md:hidden">
                     {/* BPM */}
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -653,16 +653,16 @@ export function Transport({
             </div>
 
             {/* Right: Settings */}
-            <div className="flex items-center gap-2 px-4">
+            <div className="flex items-center gap-2 px-4 max-md:px-0 max-md:ml-auto">
                 {/* Recording indicator */}
                 {armedTrack && (
-                    <div className="flex items-center gap-1.5 text-xs text-destructive">
+                    <div className="flex items-center gap-1.5 text-xs text-destructive max-md:hidden">
                         <Mic className="h-3 w-3" />
                         <span className="truncate max-w-[80px]">{armedTrack.name}</span>
                     </div>
                 )}
 
-                <Separator orientation="vertical" className="h-6" />
+                <Separator orientation="vertical" className="h-6 max-md:hidden" />
 
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -670,6 +670,7 @@ export function Transport({
                             variant="ghost"
                             size="icon-sm"
                             onClick={() => setShowShortcutsModal(true)}
+                            className="max-md:hidden"
                         >
                             <Keyboard className="h-4 w-4" />
                         </Button>
