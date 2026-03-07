@@ -548,8 +548,8 @@ export function TrackList() {
     const selectTrack = useUIStore((s) => s.selectTrack);
     const selectedTrackId = useUIStore((s) => s.selectedTrackId);
     const zoom = useUIStore((s) => s.zoom);
-    const zoomIn = useUIStore((s) => s.zoomIn);
-    const zoomOut = useUIStore((s) => s.zoomOut);
+    const _zoomIn = useUIStore((s) => s.zoomIn);
+    const _zoomOut = useUIStore((s) => s.zoomOut);
     const setZoom = useUIStore((s) => s.setZoom);
     const scrollX = useUIStore((s) => s.scrollX);
     const setScrollX = useUIStore((s) => s.setScrollX);

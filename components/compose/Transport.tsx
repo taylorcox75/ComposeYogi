@@ -24,7 +24,6 @@ import {
     Sun,
     Keyboard,
     ZoomIn,
-    ZoomOut,
     Minus,
 } from 'lucide-react';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
