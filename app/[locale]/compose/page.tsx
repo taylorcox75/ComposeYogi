@@ -3,6 +3,7 @@
 import { useEffect, useCallback, useState, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useHotkeys } from 'react-hotkeys-hook';
+import * as Tone from 'tone';
 import { useProjectStore, usePlaybackStore, useUIStore } from '@/lib/store';
 import { audioEngine, playoutManager, registerAudioTake, clearAudioTakes, type LatencyCalibrationResult } from '@/lib/audio';
 import { createLogger } from '@/lib/logger';
@@ -99,6 +100,7 @@ function ComposePageContent() {
     const zoomOut = useUIStore((s) => s.zoomOut);
     const selectedClipIds = useUIStore((s) => s.selectedClipIds);
     const clearSelection = useUIStore((s) => s.clearSelection);
+    const activeEditorClipId = useUIStore((s) => s.activeEditorClipId);
 
     // On mobile: auto-close panels to give the timeline maximum space
     useEffect(() => {
@@ -171,6 +173,26 @@ function ComposePageContent() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [createProject, loadProjectStore]);
 
+    // ─── Eager AudioContext prime ────────────────────────────────────────────
+    // iOS and some desktop browsers suspend the AudioContext until a user
+    // gesture. Tone.start() / ctx.resume() must be called SYNCHRONOUSLY inside
+    // the gesture event handler — any await before it breaks the requirement.
+    // We register a one-shot listener on the earliest possible user interaction
+    // (touchstart or mousedown) so the context is already running by the time
+    // the user taps a drum pad or piano key.
+    useEffect(() => {
+        const prime = () => {
+            // Call synchronously — satisfies iOS gesture requirement
+            Tone.start().catch(() => {});
+        };
+        document.addEventListener('touchstart', prime, { once: true, passive: true });
+        document.addEventListener('mousedown', prime, { once: true, passive: true });
+        return () => {
+            document.removeEventListener('touchstart', prime);
+            document.removeEventListener('mousedown', prime);
+        };
+    }, []);
+
     // Initialize audio on first user interaction
     const initAudio = useCallback(async () => {
         if (!isAudioReady) {
@@ -207,6 +229,15 @@ function ComposePageContent() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isAudioReady, project?.clips.length, clipNotesHash, scheduleClips]);
+
+    // Pre-load audio when the editor opens: initialize audio + schedule the
+    // project in the background so samplers are ready before the first tap.
+    useEffect(() => {
+        if (!activeEditorClipId || !project) return;
+        // initAudio is safe to call multiple times (no-op if already done)
+        initAudio().then(() => scheduleClips()).catch(() => {});
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeEditorClipId]);
 
     // Sync track effects
     useEffect(() => {

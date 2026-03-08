@@ -709,13 +709,27 @@ class PlayoutManager {
      * Ensures audio engine + playout are initialized and the given project is
      * scheduled, then plays a one-shot preview note.  Safe to call from any
      * editor interaction without checking initialization state first.
+     *
+     * Fast path: if audio is already fully ready and the clip is scheduled,
+     * previewNote is called SYNCHRONOUSLY (no Promise overhead) so taps feel
+     * instant.  The slow path initializes and pre-loads in the background;
+     * the note fires as soon as samplers are loaded.
      */
     async ensureAndPreview(project: Project, clipId: string, pitch: number, durationSeconds: number, velocity: number = 0.8): Promise<void> {
-        // Initialize audio context (no-op if already done)
+        // ── Synchronous fast path ──────────────────────────────────────────
+        // All three conditions must hold: AudioEngine ready, PlayoutManager
+        // ready, and this specific clip already has a scheduled synth.
+        // Calling previewNote here — before any await — means it fires in the
+        // same JS turn as the user tap, with zero async delay.
+        if (audioEngine.isReady() && this.state.isLoaded && this.state.scheduledClips.has(clipId)) {
+            this.previewNote(clipId, pitch, durationSeconds, velocity);
+            return;
+        }
+
+        // ── Slow path: initialize then schedule ────────────────────────────
         await audioEngine.initialize();
         await this.initialize();
 
-        // Schedule project if this clip has not been scheduled yet
         if (!this.state.scheduledClips.has(clipId)) {
             await this.scheduleProject(project);
         }
