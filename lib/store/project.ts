@@ -8,6 +8,7 @@ import { temporal } from 'zundo';
 import { v4 as uuid } from 'uuid';
 import { TEMPLATES } from '@/lib/browser';
 import { useUIStore } from './ui';
+import { playoutManager } from '@/lib/audio/playout';
 import type {
     Project,
     Track,
@@ -488,6 +489,7 @@ const projectStoreBase = (
             hasUnsavedChanges: true,
         }));
         useUIStore.getState().removeDeletedClips([clipId]);
+        playoutManager.disposeEditorPreview(clipId);
     },
 
     deleteClips: (clipIds) => {
@@ -502,6 +504,7 @@ const projectStoreBase = (
             hasUnsavedChanges: true,
         }));
         useUIStore.getState().removeDeletedClips(clipIds);
+        clipIds.forEach((id) => playoutManager.disposeEditorPreview(id));
     },
 
     duplicateClip: (clipId, offsetBars = 0) => {

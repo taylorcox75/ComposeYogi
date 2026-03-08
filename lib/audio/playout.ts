@@ -53,6 +53,11 @@ class PlayoutManager {
     // Version counter to prevent concurrent scheduleProject races
     private scheduleVersion = 0;
 
+    // Dedicated per-clip synths used exclusively for editor preview.
+    // These are completely separate from the main scheduledClips system so
+    // they can load a single instrument without waiting for the whole project.
+    private editorPreviewSynths: Map<string, SynthType> = new Map();
+
     // ========================================
     // Initialization
     // ========================================
@@ -706,35 +711,114 @@ class PlayoutManager {
     // ========================================
 
     /**
-     * Ensures audio engine + playout are initialized and the given project is
-     * scheduled, then plays a one-shot preview note.  Safe to call from any
-     * editor interaction without checking initialization state first.
+     * Ensures audio is initialized and plays a one-shot preview note.
+     * Safe to call from any editor interaction without prior checks.
      *
-     * Fast path: if audio is already fully ready and the clip is scheduled,
-     * previewNote is called SYNCHRONOUSLY (no Promise overhead) so taps feel
-     * instant.  The slow path initializes and pre-loads in the background;
-     * the note fires as soon as samplers are loaded.
+     * Strategy (in order):
+     * 1. SYNC fast-path — clip is in the main schedule: fire immediately,
+     *    zero async overhead, sound goes through the full effects chain.
+     * 2. EDITOR preview synth — a dedicated lightweight synth per clip that
+     *    loads only ONE instrument. On the very first tap it may wait for a
+     *    sampler to load (~200-500ms), but every subsequent tap is instant
+     *    because the synth is cached in editorPreviewSynths.
+     *    This fires even before scheduleProject has finished for the project.
+     * Once scheduleProject completes, path 1 takes over automatically.
      */
     async ensureAndPreview(project: Project, clipId: string, pitch: number, durationSeconds: number, velocity: number = 0.8): Promise<void> {
-        // ── Synchronous fast path ──────────────────────────────────────────
-        // All three conditions must hold: AudioEngine ready, PlayoutManager
-        // ready, and this specific clip already has a scheduled synth.
-        // Calling previewNote here — before any await — means it fires in the
-        // same JS turn as the user tap, with zero async delay.
+        // ── Path 1: sync fast-path via main schedule ───────────────────────
         if (audioEngine.isReady() && this.state.isLoaded && this.state.scheduledClips.has(clipId)) {
             this.previewNote(clipId, pitch, durationSeconds, velocity);
             return;
         }
 
-        // ── Slow path: initialize then schedule ────────────────────────────
+        // ── Init audio engine (no-op if already done) ─────────────────────
         await audioEngine.initialize();
         await this.initialize();
 
-        if (!this.state.scheduledClips.has(clipId)) {
-            await this.scheduleProject(project);
+        // Check again — scheduleProject may have completed during the awaits
+        if (this.state.scheduledClips.has(clipId)) {
+            this.previewNote(clipId, pitch, durationSeconds, velocity);
+            return;
         }
 
-        this.previewNote(clipId, pitch, durationSeconds, velocity);
+        // ── Path 2: dedicated editor preview synth ─────────────────────────
+        // Loads only this clip's instrument (not the whole project), cached.
+        let synth = this.editorPreviewSynths.get(clipId);
+
+        if (!synth) {
+            const clip = project.clips.find((c) => c.id === clipId);
+            const track = project.tracks.find((t) => t.id === clip?.trackId);
+
+            synth = clip?.instrumentPreset
+                ? createSynthFromPreset(clip.instrumentPreset)
+                : track
+                    ? this.createSynthForTrack(track)
+                    : createSynthFromPreset('basic-synth');
+
+            // Connect directly to master output (no effects chain yet,
+            // but gives immediate sound before full schedule loads)
+            (this.masterGain ? synth.connect(this.masterGain) : synth.toDestination());
+
+            // For samplers: wait for audio files to download (once per session)
+            await waitForSynthReady(synth);
+
+            // Only cache if not superseded by the main schedule
+            if (!this.editorPreviewSynths.has(clipId)) {
+                this.editorPreviewSynths.set(clipId, synth);
+            } else {
+                synth.dispose();
+                synth = this.editorPreviewSynths.get(clipId)!;
+            }
+        }
+
+        // Fire the preview note through the dedicated synth
+        try {
+            synth.triggerAttackRelease(
+                Tone.Frequency(pitch, 'midi').toFrequency(),
+                durationSeconds,
+                Tone.now(),
+                velocity,
+            );
+        } catch { /* ignore if disposed mid-preview */ }
+    }
+
+    /**
+     * Pre-load the editor preview synth for a clip before the first tap.
+     * Call this when the editor opens so the first note is instant.
+     * Fire-and-forget — safe to call without await.
+     */
+    async primeEditorPreview(project: Project, clipId: string): Promise<void> {
+        if (!this.state.isLoaded) {
+            await audioEngine.initialize();
+            await this.initialize();
+        }
+        if (this.state.scheduledClips.has(clipId) || this.editorPreviewSynths.has(clipId)) return;
+
+        const clip = project.clips.find((c) => c.id === clipId);
+        const track = project.tracks.find((t) => t.id === clip?.trackId);
+        if (!clip || !track) return;
+
+        const synth = clip.instrumentPreset
+            ? createSynthFromPreset(clip.instrumentPreset)
+            : this.createSynthForTrack(track);
+
+        (this.masterGain ? synth.connect(this.masterGain) : synth.toDestination());
+        await waitForSynthReady(synth);
+
+        if (!this.editorPreviewSynths.has(clipId)) {
+            this.editorPreviewSynths.set(clipId, synth);
+        } else {
+            synth.dispose(); // already primed by a concurrent call
+        }
+    }
+
+    /** Dispose the editor preview synth for a clip (called on clip delete). */
+    disposeEditorPreview(clipId: string): void {
+        const synth = this.editorPreviewSynths.get(clipId);
+        if (synth) {
+            try { synth.dispose(); } catch { /* ignore */ }
+            this.editorPreviewSynths.delete(clipId);
+        }
     }
 
     // ========================================

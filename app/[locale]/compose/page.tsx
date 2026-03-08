@@ -231,12 +231,12 @@ function ComposePageContent() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isAudioReady, project?.clips.length, clipNotesHash, scheduleClips]);
 
-    // Pre-load audio when the editor opens: initialize audio + schedule the
-    // project in the background so samplers are ready before the first tap.
+    // Pre-load the editor preview synth for a clip when the editor opens.
+    // primeEditorPreview loads only the one instrument (not the whole project)
+    // so the very first tap is instant (or near-instant for samplers).
     useEffect(() => {
         if (!activeEditorClipId || !project) return;
-        // initAudio is safe to call multiple times (no-op if already done)
-        initAudio().then(() => scheduleClips()).catch(() => {});
+        playoutManager.primeEditorPreview(project, activeEditorClipId).catch(() => {});
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeEditorClipId]);
 
