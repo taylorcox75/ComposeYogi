@@ -14,7 +14,7 @@ import { Inspector, InspectorCollapsedBar } from '@/components/compose/Inspector
 import { EditorPanel, EditorCollapsedBar } from '@/components/compose/EditorPanel';
 import { TrackList } from '@/components/compose/TrackList';
 import { AudioVisualizer, VisualizerCollapsedBar } from '@/components/compose/AudioVisualizer';
-import { LayoutTemplate, AudioWaveform, SlidersHorizontal } from 'lucide-react';
+import { LayoutTemplate, AudioWaveform, SlidersHorizontal, Piano } from 'lucide-react';
 import { LatencyCalibrationModal } from '@/components/compose/LatencyCalibrationModal';
 import { ProjectSelector } from '@/components/compose/ProjectSelector';
 import { useAutosave, useIsMobile } from '@/hooks';
@@ -367,20 +367,18 @@ function ComposePageContent() {
                 /* ── Mobile layout ── */
                 <div className="flex flex-1 flex-col overflow-hidden relative"
                     style={{ paddingBottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))' }}>
-                    {/* Full-width track list */}
+                    {/* Full-width track list — takes all available space */}
                     <TrackList />
 
-                    {/* Editor panel stays in-flow at the bottom */}
-                    {editorOpen ? <EditorPanel /> : <EditorCollapsedBar />}
-
-                    {/* Panel overlays — positioned just above the bottom nav */}
-                    {(browserOpen || visualizerOpen || inspectorOpen) && (
+                    {/* Panel overlays — positioned just above the bottom nav, only one at a time */}
+                    {(browserOpen || visualizerOpen || inspectorOpen || editorOpen) && (
                         <div
                             className="fixed inset-0 z-40 bg-black/40"
                             onClick={() => {
                                 if (browserOpen) toggleBrowser();
                                 if (visualizerOpen) toggleVisualizer();
                                 if (inspectorOpen) toggleInspector();
+                                if (editorOpen) toggleEditor();
                             }}
                         />
                     )}
@@ -402,30 +400,43 @@ function ComposePageContent() {
                             <Inspector />
                         </div>
                     )}
+                    {editorOpen && (
+                        <div className="fixed inset-x-0 z-50 flex flex-col bg-surface border-t border-border overflow-hidden"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', maxHeight: '60vh', minHeight: '40vh' }}>
+                            <EditorPanel />
+                        </div>
+                    )}
 
-                    {/* Mobile bottom nav bar */}
+                    {/* Mobile bottom nav bar — 4 items: Browser, Editor, Inspector, Visualizer */}
                     <nav className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t border-border bg-card"
                         style={{ height: 'calc(3rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
                         <button
                             onClick={toggleBrowser}
-                            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${browserOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${browserOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
                             <LayoutTemplate className="h-5 w-5" />
                             <span className="text-[10px]">Browser</span>
                         </button>
                         <button
-                            onClick={toggleVisualizer}
-                            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${visualizerOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                            onClick={toggleEditor}
+                            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${editorOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
-                            <AudioWaveform className="h-5 w-5" />
-                            <span className="text-[10px]">Visualizer</span>
+                            <Piano className="h-5 w-5" />
+                            <span className="text-[10px]">Editor</span>
                         </button>
                         <button
                             onClick={toggleInspector}
-                            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${inspectorOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${inspectorOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
                             <SlidersHorizontal className="h-5 w-5" />
                             <span className="text-[10px]">Inspector</span>
+                        </button>
+                        <button
+                            onClick={toggleVisualizer}
+                            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${visualizerOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                        >
+                            <AudioWaveform className="h-5 w-5" />
+                            <span className="text-[10px]">Visualizer</span>
                         </button>
                     </nav>
                 </div>
