@@ -346,6 +346,7 @@ function ComposePageContent() {
                     onStop={() => {
                         stop();
                         audioEngine.stop();
+                        setScrollX(0);
                     }}
                     isAudioReady={isAudioReady}
                     onOpenSettings={() => setShowLatencyModal(true)}
