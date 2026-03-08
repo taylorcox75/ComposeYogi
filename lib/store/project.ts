@@ -574,7 +574,7 @@ const projectStoreBase = (
                 ? {
                     ...state.project,
                     clips: state.project.clips.map((c) =>
-                        c.id === clipId ? { ...c, lengthBars: Math.max(1, newLengthBars) } : c
+                        c.id === clipId ? { ...c, lengthBars: Math.max(0.25, newLengthBars) } : c
                     ),
                     updatedAt: Date.now(),
                 }
@@ -593,6 +593,9 @@ const projectStoreBase = (
         const splitPoint = atBar - original.startBar;
         if (splitPoint <= 0 || splitPoint >= original.lengthBars) return null;
 
+        const beatsPerBar = state.project.timeSignature[0];
+        const splitBeat = splitPoint * beatsPerBar;
+
         const firstClip: Clip = {
             ...original,
             lengthBars: splitPoint,
@@ -605,17 +608,17 @@ const projectStoreBase = (
             startBar: atBar,
             lengthBars: original.lengthBars - splitPoint,
             notes: original.notes
-                ?.filter((n) => n.startBeat >= splitPoint * 4) // 4 beats per bar
+                ?.filter((n) => n.startBeat >= splitBeat)
                 .map((n) => ({
                     ...n,
                     id: uuid(),
-                    startBeat: n.startBeat - splitPoint * 4,
+                    startBeat: n.startBeat - splitBeat,
                 })),
         };
 
         // Filter notes for first clip
         if (firstClip.notes) {
-            firstClip.notes = firstClip.notes.filter((n) => n.startBeat < splitPoint * 4);
+            firstClip.notes = firstClip.notes.filter((n) => n.startBeat < splitBeat);
         }
 
         set((s) => ({
