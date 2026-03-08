@@ -6,6 +6,7 @@
 'use client';
 
 import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
+import { Trash2, Copy } from 'lucide-react';
 import { useProjectStore, useUIStore } from '@/lib/store';
 import { getAudioTake, audioEngine } from '@/lib/audio';
 import { AudioClip } from './AudioClip';
@@ -37,9 +38,11 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
     const updateClip = useProjectStore((s) => s.updateClip);
     const resizeClip = useProjectStore((s) => s.resizeClip);
     const duplicateClip = useProjectStore((s) => s.duplicateClip);
+    const deleteClip = useProjectStore((s) => s.deleteClip);
     const moveClipsByDelta = useProjectStore((s) => s.moveClipsByDelta);
     const selectedClipIds = useUIStore((s) => s.selectedClipIds);
     const selectClip = useUIStore((s) => s.selectClip);
+    const clearSelection = useUIStore((s) => s.clearSelection);
     const openEditor = useUIStore((s) => s.openEditor);
     const multiDragOffsetBars = useUIStore((s) => s.multiDragOffsetBars);
     const setMultiDragOffset = useUIStore((s) => s.setMultiDragOffset);
@@ -107,17 +110,41 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
     const clipLeft = visualStartBar * pixelsPerBar;
     const ghostLeft = ghostStartBar !== null ? ghostStartBar * pixelsPerBar : null;
 
-    // Handle click - selection is handled in pointerDown, this just stops propagation
+    // Double-tap / double-click detection — works on both mouse (desktop) and
+    // touch (mobile) since `click` is synthesized from touch events.
+    // `onDoubleClick` alone is unreliable on mobile, so we track timing manually.
+    const lastTapTimeRef = useRef(0);
+
     const handleClick = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
-        // Selection handled in handlePointerDown to support Shift+click
-    }, []);
-
-    // Handle double-click to open editor
-    const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-        e.stopPropagation();
-        openEditor(clip.id);
+        const now = Date.now();
+        if (now - lastTapTimeRef.current < 350) {
+            // Second tap within 350ms → open editor
+            openEditor(clip.id);
+            lastTapTimeRef.current = 0;
+        } else {
+            lastTapTimeRef.current = now;
+        }
     }, [clip.id, openEditor]);
+
+    // Delete this clip
+    const handleDelete = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        deleteClip(clip.id);
+        clearSelection();
+    }, [clip.id, deleteClip, clearSelection]);
+
+    // Duplicate this clip (place right after the original on the same track)
+    const handleDuplicate = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const newClip = duplicateClip(clip.id, 0);
+        if (newClip) {
+            updateClip(newClip.id, { startBar: clip.startBar + clip.lengthBars });
+            selectClip(newClip.id);
+        }
+    }, [clip.id, clip.startBar, clip.lengthBars, duplicateClip, updateClip, selectClip]);
 
     // Determine drag mode based on pointer position
     const getDragMode = useCallback((e: React.PointerEvent): DragMode => {
@@ -382,7 +409,6 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
                     cursor: isDuplicating ? 'copy' : dragMode === 'move' ? 'grabbing' : dragMode ? 'ew-resize' : cursorStyle,
                 }}
                 onClick={handleClick}
-                onDoubleClick={handleDoubleClick}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMoveOnClip}
                 onPointerEnter={() => setIsHovered(true)}
@@ -424,7 +450,34 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
                         <span className="truncate text-2xs font-medium text-white/90">
                             {clip.name}
                         </span>
-                        {/* MIDI/Drum pattern preview would go here */}
+                    </div>
+                )}
+
+                {/* Action buttons — shown on hover/select, always on mobile when selected.
+                    Placed at top-left to avoid clashing with the right resize handle. */}
+                {(isHovered || isSelected) && !dragMode && (
+                    <div
+                        className="absolute top-0.5 left-2 flex items-center gap-0.5 z-10"
+                        onPointerDown={(e) => e.stopPropagation()}
+                    >
+                        <button
+                            className="flex items-center justify-center rounded-sm bg-black/40 text-white/80 hover:bg-black/60 hover:text-white transition-colors"
+                            style={{ width: 20, height: 20, touchAction: 'manipulation' }}
+                            onClick={handleDuplicate}
+                            title="Duplicate clip"
+                            aria-label="Duplicate clip"
+                        >
+                            <Copy className="h-2.5 w-2.5" />
+                        </button>
+                        <button
+                            className="flex items-center justify-center rounded-sm bg-black/40 text-white/80 hover:bg-red-500/80 hover:text-white transition-colors"
+                            style={{ width: 20, height: 20, touchAction: 'manipulation' }}
+                            onClick={handleDelete}
+                            title="Delete clip"
+                            aria-label="Delete clip"
+                        >
+                            <Trash2 className="h-2.5 w-2.5" />
+                        </button>
                     </div>
                 )}
             </div>

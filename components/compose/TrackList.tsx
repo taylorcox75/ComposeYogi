@@ -545,6 +545,7 @@ export function TrackList() {
     const updateTrack = useProjectStore((s) => s.updateTrack);
     const deleteTrack = useProjectStore((s) => s.deleteTrack);
     const reorderTracks = useProjectStore((s) => s.reorderTracks);
+    const setProjectLengthBars = useProjectStore((s) => s.setProjectLengthBars);
     const selectTrack = useUIStore((s) => s.selectTrack);
     const selectedTrackId = useUIStore((s) => s.selectedTrackId);
     const zoom = useUIStore((s) => s.zoom);
@@ -566,7 +567,8 @@ export function TrackList() {
 
     const beatsPerBar = project?.timeSignature[0] || 4;
     const pixelsPerBeat = zoom / beatsPerBar;
-    const projectLengthBeats = DEFAULT_PROJECT_BARS * beatsPerBar;
+    const projectLengthBars = project?.projectLengthBars ?? DEFAULT_PROJECT_BARS;
+    const projectLengthBeats = projectLengthBars * beatsPerBar;
 
     // DnD sensors for track reordering
     const sensors = useSensors(
@@ -773,6 +775,49 @@ export function TrackList() {
         return () => canvas.removeEventListener('touchmove', rulerTouchMoveHandler);
     }, [rulerTouchMoveHandler]);
 
+    // ----------------------------------------
+    // Project end handle — drag to set length
+    // ----------------------------------------
+    const endHandleDraggingRef = useRef(false);
+    const endHandleDragStartRef = useRef<{ clientX: number; originalBars: number } | null>(null);
+    const [endHandleDragBars, setEndHandleDragBars] = useState<number | null>(null); // live preview value
+
+    const pixelsPerBar = pixelsPerBeat * beatsPerBar;
+
+    const endHandleFromClientX = useCallback((clientX: number, startClientX: number, originalBars: number) => {
+        const deltaX = clientX - startClientX;
+        const deltaBars = deltaX / pixelsPerBar;
+        return Math.max(4, Math.round(originalBars + deltaBars));
+    }, [pixelsPerBar]);
+
+    const handleEndHandlePointerDown = useCallback((e: React.PointerEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        endHandleDraggingRef.current = true;
+        endHandleDragStartRef.current = { clientX: e.clientX, originalBars: projectLengthBars };
+
+        const onMove = (ev: PointerEvent) => {
+            if (!endHandleDragStartRef.current) return;
+            const bars = endHandleFromClientX(ev.clientX, endHandleDragStartRef.current.clientX, endHandleDragStartRef.current.originalBars);
+            setEndHandleDragBars(bars);
+        };
+        const onUp = (ev: PointerEvent) => {
+            if (!endHandleDragStartRef.current) return;
+            const bars = endHandleFromClientX(ev.clientX, endHandleDragStartRef.current.clientX, endHandleDragStartRef.current.originalBars);
+            setProjectLengthBars(bars);
+            setEndHandleDragBars(null);
+            endHandleDraggingRef.current = false;
+            endHandleDragStartRef.current = null;
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+    }, [projectLengthBars, endHandleFromClientX, setProjectLengthBars]);
+
+    const displayLengthBars = endHandleDragBars ?? projectLengthBars;
+    const endHandleX = displayLengthBars * pixelsPerBar;
 
     // Apply scrollX state to container
     useEffect(() => {
@@ -831,6 +876,71 @@ export function TrackList() {
         setScrollX(newScrollX);
     }, [zoom, pixelsPerBeat, beatsPerBar, setZoom, setScrollX]);
 
+    // ----------------------------------------
+    // Pinch-to-zoom for touch devices
+    // ----------------------------------------
+    const pinchRef = useRef<{ distance: number; midX: number; scrollLeft: number } | null>(null);
+
+    const getPinchDistance = (t1: Touch, t2: Touch) =>
+        Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+
+    const handleTouchStartPinch = useCallback((e: TouchEvent) => {
+        if (e.touches.length !== 2) return;
+        const container = scrollContainerRef.current;
+        if (!container) return;
+        const dist = getPinchDistance(e.touches[0], e.touches[1]);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        pinchRef.current = { distance: dist, midX, scrollLeft: container.scrollLeft };
+    }, []);
+
+    const handleTouchMovePinch = useCallback((e: TouchEvent) => {
+        if (e.touches.length !== 2 || !pinchRef.current) return;
+        e.preventDefault();
+
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const newDist = getPinchDistance(e.touches[0], e.touches[1]);
+        const ratio = newDist / pinchRef.current.distance;
+
+        const MIN_ZOOM = 20;
+        const MAX_ZOOM = 200;
+        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * ratio));
+
+        // Anchor zoom to the pinch midpoint
+        const rect = container.getBoundingClientRect();
+        const midClientX = pinchRef.current.midX;
+        const midX = midClientX - rect.left + pinchRef.current.scrollLeft;
+        const beatUnderMid = midX / pixelsPerBeat;
+        const newPixelsPerBeat = newZoom / beatsPerBar;
+        const newMidX = beatUnderMid * newPixelsPerBeat;
+        const newScrollX = Math.max(0, newMidX - (midClientX - rect.left));
+
+        setZoom(newZoom);
+        setScrollX(newScrollX);
+
+        // Update reference for next move event
+        pinchRef.current = { distance: newDist, midX: pinchRef.current.midX, scrollLeft: newScrollX };
+    }, [zoom, pixelsPerBeat, beatsPerBar, setZoom, setScrollX]);
+
+    const handleTouchEndPinch = useCallback(() => {
+        pinchRef.current = null;
+    }, []);
+
+    // Register non-passive touch listeners on the scroll container
+    useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+        container.addEventListener('touchstart', handleTouchStartPinch, { passive: true });
+        container.addEventListener('touchmove', handleTouchMovePinch, { passive: false });
+        container.addEventListener('touchend', handleTouchEndPinch, { passive: true });
+        return () => {
+            container.removeEventListener('touchstart', handleTouchStartPinch);
+            container.removeEventListener('touchmove', handleTouchMovePinch);
+            container.removeEventListener('touchend', handleTouchEndPinch);
+        };
+    }, [handleTouchStartPinch, handleTouchMovePinch, handleTouchEndPinch]);
+
     const handleAddTrack = useCallback(() => {
         addTrack('midi', `Track ${(project?.tracks.length || 0) + 1}`);
     }, [addTrack, project?.tracks.length]);
@@ -861,7 +971,11 @@ export function TrackList() {
 
     if (!project) return null;
 
-    const contentWidth = Math.max(projectLengthBeats, Math.ceil(300 * (project.bpm / 60))) * pixelsPerBeat;
+    // Content width: use user-set project length (with some extra scroll room) but never less than 5min at current BPM
+    const contentWidth = Math.max(
+        (displayLengthBars + 4) * pixelsPerBar, // project length + 4 bars of extra room
+        Math.ceil(300 * (project.bpm / 60)) * pixelsPerBeat // 5 minutes at current BPM
+    );
     const trackIds = project.tracks.map((t) => t.id);
 
     return (
@@ -945,6 +1059,21 @@ export function TrackList() {
                             pixelsPerBar={pixelsPerBeat * beatsPerBar}
                             rulerHeight={RULER_HEIGHT}
                         />
+                        {/* Project end handle — drag to resize timeline length */}
+                        <div
+                            className="absolute top-0 z-30 flex flex-col items-center select-none"
+                            style={{ left: endHandleX - 8, height: RULER_HEIGHT, width: 16, cursor: 'ew-resize' }}
+                            onPointerDown={handleEndHandlePointerDown}
+                            title={`Project end: bar ${displayLengthBars}`}
+                        >
+                            {/* Vertical line */}
+                            <div className="absolute top-0 bottom-0 left-1/2 w-0.5 -translate-x-px bg-accent/80" />
+                            {/* Grab tab */}
+                            <div className="relative mt-0.5 flex items-center justify-center rounded-sm bg-accent text-accent-foreground"
+                                style={{ width: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: 1 }}>
+                                {endHandleDragBars !== null ? `${displayLengthBars}` : '⊣'}
+                            </div>
+                        </div>
                     </div>
 
                     {/* Track lanes area */}
@@ -1227,7 +1356,8 @@ function SortableTrackHeader(props: TrackHeaderProps) {
                         value={props.track.volume}
                         onChange={(e) => props.onVolumeChange(parseFloat(e.target.value))}
                         onClick={(e) => e.stopPropagation()}
-                        className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-muted [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                        className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-muted [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                        style={{ touchAction: 'pan-x' }}
                     />
                 </div>
 
@@ -1300,27 +1430,38 @@ function TrackLane({ track, index, pixelsPerBeat, beatsPerBar, isSelected, onSel
         onSelect();
     }, [clearSelection, onSelect]);
 
-    // Double-click to create new clip
-    const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    // Double-tap / double-click on empty lane to create a new clip.
+    // Uses timing in onClick instead of onDoubleClick so it works on mobile touch.
+    const lastLaneTapRef = useRef(0);
+    const lastLaneTapPosRef = useRef({ x: 0, y: 0 });
+
+    const handleLaneTap = useCallback((e: React.MouseEvent) => {
         if (!project) return;
         if (e.target !== e.currentTarget) return; // Only on empty area
 
-        const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const beat = x / pixelsPerBeat;
-        const bar = Math.floor(beat / beatsPerBar);
+        const now = Date.now();
+        const dx = Math.abs(e.clientX - lastLaneTapPosRef.current.x);
+        const dy = Math.abs(e.clientY - lastLaneTapPosRef.current.y);
 
-        // Determine clip type based on track type/color
-        let clipType: 'midi' | 'drum' | 'audio' = 'midi';
-        if (track.type === 'audio') {
-            clipType = 'audio';
-        } else if (track.color === 'drums') {
-            clipType = 'drum';
+        if (now - lastLaneTapRef.current < 350 && dx < 20 && dy < 20) {
+            // Double-tap on the same spot → create new clip
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const beat = x / pixelsPerBeat;
+            const bar = Math.floor(beat / beatsPerBar);
+
+            let clipType: 'midi' | 'drum' | 'audio' = 'midi';
+            if (track.type === 'audio') clipType = 'audio';
+            else if (track.color === 'drums') clipType = 'drum';
+
+            const clip = addClip(track.id, clipType, bar, 1);
+            selectClip(clip.id);
+            openEditor(clip.id);
+            lastLaneTapRef.current = 0;
+        } else {
+            lastLaneTapRef.current = now;
+            lastLaneTapPosRef.current = { x: e.clientX, y: e.clientY };
         }
-
-        const clip = addClip(track.id, clipType, bar, 1); // 1 bar clip
-        selectClip(clip.id);
-        openEditor(clip.id);
     }, [project, track.id, track.type, track.color, pixelsPerBeat, beatsPerBar, addClip, selectClip, openEditor]);
 
     // Handle drag over
@@ -1482,8 +1623,7 @@ function TrackLane({ track, index, pixelsPerBeat, beatsPerBar, isSelected, onSel
                 top: index * TRACK_HEIGHT,
                 height: TRACK_HEIGHT,
             }}
-            onClick={handleLaneClick}
-            onDoubleClick={handleDoubleClick}
+            onClick={(e) => { handleLaneClick(e); handleLaneTap(e); }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}

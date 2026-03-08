@@ -194,8 +194,10 @@ export function BrowserPanel() {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handleTouchDragStart = useCallback((data: any, label: string, e: React.TouchEvent) => {
-        // Don't hijack taps on the + button or delete button
-        if ((e.target as HTMLElement).closest('button')) return;
+        // Don't hijack taps on explicit action buttons (+ add, delete)
+        const target = e.target as HTMLElement;
+        if (target.closest('[data-no-drag]')) return;
+        if (target.closest('button')) return;
         touchDragDataRef.current = { data, label };
     }, []);
 
@@ -239,18 +241,26 @@ export function BrowserPanel() {
             touchGhostRef.current = null;
         }
 
-        const el = document.elementFromPoint(touch.clientX, touch.clientY);
-        if (el) {
-            let target: Element | null = el;
-            while (target && !target.getAttribute('data-track-id')) {
-                target = target.parentElement;
+        // Use bounding-rect lookup instead of elementFromPoint to bypass z-index
+        // overlays (backdrop, panel containers) that would otherwise intercept the hit-test.
+        const trackLanes = document.querySelectorAll<HTMLElement>('[data-track-id]');
+        let dropTarget: HTMLElement | null = null;
+        for (const lane of trackLanes) {
+            const rect = lane.getBoundingClientRect();
+            if (
+                touch.clientX >= rect.left && touch.clientX <= rect.right &&
+                touch.clientY >= rect.top && touch.clientY <= rect.bottom
+            ) {
+                dropTarget = lane;
+                break;
             }
-            if (target) {
-                target.dispatchEvent(new CustomEvent('browser-touch-drop', {
-                    bubbles: false,
-                    detail: { data: touchDragDataRef.current.data, clientX: touch.clientX },
-                }));
-            }
+        }
+
+        if (dropTarget) {
+            dropTarget.dispatchEvent(new CustomEvent('browser-touch-drop', {
+                bubbles: false,
+                detail: { data: touchDragDataRef.current.data, clientX: touch.clientX },
+            }));
         }
 
         touchDragDataRef.current = null;
@@ -849,7 +859,7 @@ export function BrowserPanel() {
     };
 
     return (
-        <aside className={`flex flex-col border-border bg-surface ${isMobile ? 'w-full h-full border-t' : 'w-browser border-r'}`}>
+        <aside className={`flex flex-col border-border bg-surface overflow-hidden ${isMobile ? 'w-full flex-1 border-t' : 'w-browser border-r'}`}>
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
                 <h2 className="text-sm font-semibold">Browser</h2>

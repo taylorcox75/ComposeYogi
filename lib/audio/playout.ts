@@ -8,6 +8,7 @@ import type { Clip, Project, Track, TrackEffect } from '@/types';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('Playout');
+import { audioEngine } from './engine';
 import { getAudioTake } from './recording-manager';
 import { createSynthFromPreset, waitForSynthReady, type SynthType } from './synth-presets';
 
@@ -51,6 +52,11 @@ class PlayoutManager {
 
     // Version counter to prevent concurrent scheduleProject races
     private scheduleVersion = 0;
+
+    // Dedicated per-clip synths used exclusively for editor preview.
+    // These are completely separate from the main scheduledClips system so
+    // they can load a single instrument without waiting for the whole project.
+    private editorPreviewSynths: Map<string, SynthType> = new Map();
 
     // ========================================
     // Initialization
@@ -125,7 +131,54 @@ class PlayoutManager {
     }
 
     public updateTrackEffects(trackId: string, effects: TrackEffect[]): void {
-        this.rebuildTrackEffects(trackId, effects);
+        const existing = this.trackEffects.get(trackId) ?? [];
+
+        // If the number or types of effects changed, do a full rebuild
+        const structureChanged =
+            existing.length !== effects.length ||
+            effects.some((fx, i) => {
+                const node = existing[i];
+                if (!node) return true;
+                // Check type match by constructor name vs effect.type
+                if (fx.type === 'reverb' && !(node instanceof Tone.Reverb)) return true;
+                if (fx.type === 'delay' && !(node instanceof Tone.FeedbackDelay)) return true;
+                if (fx.type === 'distortion' && !(node instanceof Tone.Distortion)) return true;
+                if (fx.type === 'filter' && !(node instanceof Tone.Filter)) return true;
+                if (fx.type === 'compression' && !(node instanceof Tone.Compressor)) return true;
+                return false;
+            });
+
+        if (structureChanged) {
+            this.rebuildTrackEffects(trackId, effects);
+            return;
+        }
+
+        // Only params changed — update nodes in-place to avoid audio dropout
+        effects.forEach((fx, i) => {
+            const node = existing[i];
+            if (!node) return;
+            try {
+                if (node instanceof Tone.Reverb) {
+                    if (fx.params.wet !== undefined) node.wet.value = fx.params.wet as number;
+                    if (fx.params.decay !== undefined) node.decay = fx.params.decay as number;
+                } else if (node instanceof Tone.FeedbackDelay) {
+                    if (fx.params.wet !== undefined) node.wet.value = fx.params.wet as number;
+                    if (fx.params.feedback !== undefined) node.feedback.value = fx.params.feedback as number;
+                    if (fx.params.delayTime !== undefined) node.delayTime.value = fx.params.delayTime as number;
+                } else if (node instanceof Tone.Distortion) {
+                    if (fx.params.wet !== undefined) node.wet.value = fx.params.wet as number;
+                    if (fx.params.distortion !== undefined) node.distortion = fx.params.distortion as number;
+                } else if (node instanceof Tone.Filter) {
+                    if (fx.params.frequency !== undefined) node.frequency.value = fx.params.frequency as number;
+                    if (fx.params.Q !== undefined) node.Q.value = fx.params.Q as number;
+                } else if (node instanceof Tone.Compressor) {
+                    if (fx.params.threshold !== undefined) node.threshold.value = fx.params.threshold as number;
+                    if (fx.params.ratio !== undefined) node.ratio.value = fx.params.ratio as number;
+                }
+            } catch {
+                // Ignore in case node was disposed concurrently
+            }
+        });
     }
 
     private rebuildTrackEffects(trackId: string, effects: TrackEffect[]): void {
@@ -281,7 +334,7 @@ class PlayoutManager {
         return (beats / bpm) * 60;
     }
 
-    async scheduleClip(clip: Clip, track: Track, project: Project): Promise<void> {
+    async scheduleClip(clip: Clip, track: Track, project: Project, version?: number): Promise<void> {
         // Remove any existing schedule for this clip
         this.unscheduleClip(clip.id);
 
@@ -298,14 +351,41 @@ class PlayoutManager {
         const _beatsPerBar = project.timeSignature[0];
 
         if (clip.type === 'audio' && clip.activeTakeId) {
-            // Schedule audio clip from AudioTake
             await this.scheduleAudioClip(clip, track, chain.input, scheduled, project);
         } else if ((clip.type === 'midi' || clip.type === 'drum') && clip.notes) {
-            // Schedule MIDI/Drum clip
             await this.scheduleMidiClip(clip, track, chain.input, scheduled, project);
         }
 
+        // After the async work, verify this call is still the current version.
+        // A newer scheduleProject may have started — if so, discard and dispose
+        // the synth we just built to prevent it from leaking into the audio graph.
+        if (version !== undefined && this.scheduleVersion !== version) {
+            this.disposeSingleScheduled(scheduled);
+            return;
+        }
+
         this.state.scheduledClips.set(clip.id, scheduled);
+    }
+
+    /** Dispose a ScheduledClip that was never registered in scheduledClips (race-condition cleanup). */
+    private disposeSingleScheduled(scheduled: ScheduledClip): void {
+        scheduled.events.forEach((event) => {
+            try { event.dispose(); } catch { /* ignore */ }
+        });
+        if (scheduled.player) {
+            try {
+                if (scheduled.player instanceof Tone.Player) {
+                    scheduled.player.unsync();
+                    scheduled.player.stop();
+                } else if (scheduled.player instanceof Tone.PolySynth || scheduled.player instanceof Tone.Sampler) {
+                    (scheduled.player as Tone.PolySynth | Tone.Sampler).releaseAll();
+                } else if (scheduled.player instanceof Tone.MonoSynth || scheduled.player instanceof Tone.MembraneSynth) {
+                    (scheduled.player as Tone.MonoSynth).triggerRelease();
+                }
+            } catch { /* ignore */ } finally {
+                try { scheduled.player.dispose(); } catch { /* ignore */ }
+            }
+        }
     }
 
     /**
@@ -537,16 +617,15 @@ class PlayoutManager {
         // Clear existing schedules
         this.clearAllScheduled();
 
-        // Schedule all clips, checking version after each async op
+        // Schedule all clips, passing version so each async scheduleClip can self-abort
         for (const clip of project.clips) {
-            // Abort if a newer scheduleProject call has started
             if (this.scheduleVersion !== version) {
                 logger.debug('Aborting stale schedule', { version, current: this.scheduleVersion });
                 return;
             }
             const track = project.tracks.find((t) => t.id === clip.trackId);
             if (track && !track.muted) {
-                await this.scheduleClip(clip, track, project);
+                await this.scheduleClip(clip, track, project, version);
             }
         }
 
@@ -562,6 +641,30 @@ class PlayoutManager {
             this.updateTrackVolume(track.id, track.muted ? 0 : track.volume);
             this.updateTrackPan(track.id, track.pan);
         }
+
+        // Remove audio nodes for tracks that are no longer in the project
+        const currentTrackIds = new Set(project.tracks.map((t) => t.id));
+        for (const trackId of Array.from(this.trackEntries.keys())) {
+            if (!currentTrackIds.has(trackId)) {
+                this.disposeTrackChain(trackId);
+            }
+        }
+
+        // Apply solo logic: mute all non-soloed tracks when any track is soloed
+        this.updateSoloState(project.tracks);
+    }
+
+    private disposeTrackChain(trackId: string): void {
+        try { this.trackEntries.get(trackId)?.dispose(); } catch { /* ignore */ }
+        try { this.trackGains.get(trackId)?.dispose(); } catch { /* ignore */ }
+        try { this.trackPanners.get(trackId)?.dispose(); } catch { /* ignore */ }
+        this.trackEntries.delete(trackId);
+        this.trackGains.delete(trackId);
+        this.trackPanners.delete(trackId);
+        // Effect chain will be cleaned up by updateTrackEffects on next project sync
+        const effects = this.trackEffects.get(trackId) || [];
+        effects.forEach((e) => { try { e.dispose(); } catch { /* ignore */ } });
+        this.trackEffects.delete(trackId);
     }
 
     // ========================================
@@ -600,6 +703,121 @@ class PlayoutManager {
             );
         } catch {
             // Ignore preview errors (e.g. synth disposed mid-preview)
+        }
+    }
+
+    // ========================================
+    // Editor preview helpers
+    // ========================================
+
+    /**
+     * Ensures audio is initialized and plays a one-shot preview note.
+     * Safe to call from any editor interaction without prior checks.
+     *
+     * Strategy (in order):
+     * 1. SYNC fast-path — clip is in the main schedule: fire immediately,
+     *    zero async overhead, sound goes through the full effects chain.
+     * 2. EDITOR preview synth — a dedicated lightweight synth per clip that
+     *    loads only ONE instrument. On the very first tap it may wait for a
+     *    sampler to load (~200-500ms), but every subsequent tap is instant
+     *    because the synth is cached in editorPreviewSynths.
+     *    This fires even before scheduleProject has finished for the project.
+     * Once scheduleProject completes, path 1 takes over automatically.
+     */
+    async ensureAndPreview(project: Project, clipId: string, pitch: number, durationSeconds: number, velocity: number = 0.8): Promise<void> {
+        // ── Path 1: sync fast-path via main schedule ───────────────────────
+        if (audioEngine.isReady() && this.state.isLoaded && this.state.scheduledClips.has(clipId)) {
+            this.previewNote(clipId, pitch, durationSeconds, velocity);
+            return;
+        }
+
+        // ── Init audio engine (no-op if already done) ─────────────────────
+        await audioEngine.initialize();
+        await this.initialize();
+
+        // Check again — scheduleProject may have completed during the awaits
+        if (this.state.scheduledClips.has(clipId)) {
+            this.previewNote(clipId, pitch, durationSeconds, velocity);
+            return;
+        }
+
+        // ── Path 2: dedicated editor preview synth ─────────────────────────
+        // Loads only this clip's instrument (not the whole project), cached.
+        let synth = this.editorPreviewSynths.get(clipId);
+
+        if (!synth) {
+            const clip = project.clips.find((c) => c.id === clipId);
+            const track = project.tracks.find((t) => t.id === clip?.trackId);
+
+            synth = clip?.instrumentPreset
+                ? createSynthFromPreset(clip.instrumentPreset)
+                : track
+                    ? this.createSynthForTrack(track)
+                    : createSynthFromPreset('basic-synth');
+
+            // Connect directly to master output (no effects chain yet,
+            // but gives immediate sound before full schedule loads)
+            (this.masterGain ? synth.connect(this.masterGain) : synth.toDestination());
+
+            // For samplers: wait for audio files to download (once per session)
+            await waitForSynthReady(synth);
+
+            // Only cache if not superseded by the main schedule
+            if (!this.editorPreviewSynths.has(clipId)) {
+                this.editorPreviewSynths.set(clipId, synth);
+            } else {
+                synth.dispose();
+                synth = this.editorPreviewSynths.get(clipId)!;
+            }
+        }
+
+        // Fire the preview note through the dedicated synth
+        try {
+            synth.triggerAttackRelease(
+                Tone.Frequency(pitch, 'midi').toFrequency(),
+                durationSeconds,
+                Tone.now(),
+                velocity,
+            );
+        } catch { /* ignore if disposed mid-preview */ }
+    }
+
+    /**
+     * Pre-load the editor preview synth for a clip before the first tap.
+     * Call this when the editor opens so the first note is instant.
+     * Fire-and-forget — safe to call without await.
+     */
+    async primeEditorPreview(project: Project, clipId: string): Promise<void> {
+        if (!this.state.isLoaded) {
+            await audioEngine.initialize();
+            await this.initialize();
+        }
+        if (this.state.scheduledClips.has(clipId) || this.editorPreviewSynths.has(clipId)) return;
+
+        const clip = project.clips.find((c) => c.id === clipId);
+        const track = project.tracks.find((t) => t.id === clip?.trackId);
+        if (!clip || !track) return;
+
+        const synth = clip.instrumentPreset
+            ? createSynthFromPreset(clip.instrumentPreset)
+            : this.createSynthForTrack(track);
+
+        (this.masterGain ? synth.connect(this.masterGain) : synth.toDestination());
+        await waitForSynthReady(synth);
+
+        if (!this.editorPreviewSynths.has(clipId)) {
+            this.editorPreviewSynths.set(clipId, synth);
+        } else {
+            synth.dispose(); // already primed by a concurrent call
+        }
+    }
+
+    /** Dispose the editor preview synth for a clip (called on clip delete). */
+    disposeEditorPreview(clipId: string): void {
+        const synth = this.editorPreviewSynths.get(clipId);
+        if (synth) {
+            try { synth.dispose(); } catch { /* ignore */ }
+            this.editorPreviewSynths.delete(clipId);
         }
     }
 

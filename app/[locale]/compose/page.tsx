@@ -3,6 +3,7 @@
 import { useEffect, useCallback, useState, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useHotkeys } from 'react-hotkeys-hook';
+import * as Tone from 'tone';
 import { useProjectStore, usePlaybackStore, useUIStore } from '@/lib/store';
 import { audioEngine, playoutManager, registerAudioTake, clearAudioTakes, type LatencyCalibrationResult } from '@/lib/audio';
 import { createLogger } from '@/lib/logger';
@@ -14,7 +15,7 @@ import { Inspector, InspectorCollapsedBar } from '@/components/compose/Inspector
 import { EditorPanel, EditorCollapsedBar } from '@/components/compose/EditorPanel';
 import { TrackList } from '@/components/compose/TrackList';
 import { AudioVisualizer, VisualizerCollapsedBar } from '@/components/compose/AudioVisualizer';
-import { LayoutTemplate, AudioWaveform, SlidersHorizontal } from 'lucide-react';
+import { LayoutTemplate, AudioWaveform, SlidersHorizontal, Piano } from 'lucide-react';
 import { LatencyCalibrationModal } from '@/components/compose/LatencyCalibrationModal';
 import { ProjectSelector } from '@/components/compose/ProjectSelector';
 import { useAutosave, useIsMobile } from '@/hooks';
@@ -30,7 +31,7 @@ import Link from 'next/link';
 // getServerSnapshot and cause an infinite loop during SSR/hydration.
 function TransportSkeleton() {
     return (
-        <header className="flex h-transport items-center border-b border-border bg-card px-4 gap-3">
+        <header className="relative z-[60] flex h-transport items-center border-b border-border bg-card px-4 gap-3">
             <Link href="/" className="flex items-center gap-2 text-accent hover:opacity-80 transition-opacity">
                 <MusicWave barCount={4} color="accent" className="h-5" />
                 <span className="text-sm font-semibold tracking-tight">ComposeYogi</span>
@@ -92,11 +93,15 @@ function ComposePageContent() {
     const toggleInspector = useUIStore((s) => s.toggleInspector);
     const toggleEditor = useUIStore((s) => s.toggleEditor);
     const toggleVisualizer = useUIStore((s) => s.toggleVisualizer);
+    const openMobilePanel = useUIStore((s) => s.openMobilePanel);
+    const closeAllPanels = useUIStore((s) => s.closeAllPanels);
     const setScrollX = useUIStore((s) => s.setScrollX);
     const zoomIn = useUIStore((s) => s.zoomIn);
     const zoomOut = useUIStore((s) => s.zoomOut);
     const selectedClipIds = useUIStore((s) => s.selectedClipIds);
     const clearSelection = useUIStore((s) => s.clearSelection);
+    const activeEditorClipId = useUIStore((s) => s.activeEditorClipId);
+    const openEditor = useUIStore((s) => s.openEditor);
 
     // On mobile: auto-close panels to give the timeline maximum space
     useEffect(() => {
@@ -169,6 +174,26 @@ function ComposePageContent() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [createProject, loadProjectStore]);
 
+    // ─── Eager AudioContext prime ────────────────────────────────────────────
+    // iOS and some desktop browsers suspend the AudioContext until a user
+    // gesture. Tone.start() / ctx.resume() must be called SYNCHRONOUSLY inside
+    // the gesture event handler — any await before it breaks the requirement.
+    // We register a one-shot listener on the earliest possible user interaction
+    // (touchstart or mousedown) so the context is already running by the time
+    // the user taps a drum pad or piano key.
+    useEffect(() => {
+        const prime = () => {
+            // Call synchronously — satisfies iOS gesture requirement
+            Tone.start().catch(() => {});
+        };
+        document.addEventListener('touchstart', prime, { once: true, passive: true });
+        document.addEventListener('mousedown', prime, { once: true, passive: true });
+        return () => {
+            document.removeEventListener('touchstart', prime);
+            document.removeEventListener('mousedown', prime);
+        };
+    }, []);
+
     // Initialize audio on first user interaction
     const initAudio = useCallback(async () => {
         if (!isAudioReady) {
@@ -205,6 +230,15 @@ function ComposePageContent() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isAudioReady, project?.clips.length, clipNotesHash, scheduleClips]);
+
+    // Pre-load the editor preview synth for a clip when the editor opens.
+    // primeEditorPreview loads only the one instrument (not the whole project)
+    // so the very first tap is instant (or near-instant for samplers).
+    useEffect(() => {
+        if (!activeEditorClipId || !project) return;
+        playoutManager.primeEditorPreview(project, activeEditorClipId).catch(() => {});
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeEditorClipId]);
 
     // Sync track effects
     useEffect(() => {
@@ -344,6 +378,7 @@ function ComposePageContent() {
                     onStop={() => {
                         stop();
                         audioEngine.stop();
+                        setScrollX(0);
                     }}
                     isAudioReady={isAudioReady}
                     onOpenSettings={() => setShowLatencyModal(true)}
@@ -367,65 +402,85 @@ function ComposePageContent() {
                 /* ── Mobile layout ── */
                 <div className="flex flex-1 flex-col overflow-hidden relative"
                     style={{ paddingBottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))' }}>
-                    {/* Full-width track list */}
+                    {/* Full-width track list — takes all available space */}
                     <TrackList />
 
-                    {/* Editor panel stays in-flow at the bottom */}
-                    {editorOpen ? <EditorPanel /> : <EditorCollapsedBar />}
-
-                    {/* Panel overlays — positioned just above the bottom nav */}
-                    {(browserOpen || visualizerOpen || inspectorOpen) && (
+                    {/* Panel overlays — positioned just above the bottom nav, only one at a time */}
+                    {(browserOpen || visualizerOpen || inspectorOpen || editorOpen) && (
                         <div
                             className="fixed inset-0 z-40 bg-black/40"
-                            onClick={() => {
-                                if (browserOpen) toggleBrowser();
-                                if (visualizerOpen) toggleVisualizer();
-                                if (inspectorOpen) toggleInspector();
-                            }}
+                            onClick={() => closeAllPanels()}
                         />
                     )}
                     {browserOpen && (
-                        <div className="fixed inset-x-0 z-50 flex flex-col bg-surface border-t border-border overflow-hidden"
-                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', maxHeight: '60vh', minHeight: '40vh' }}>
+                        <div className="fixed inset-x-0 z-50 flex flex-col bg-surface border-t border-border"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', height: '55vh' }}>
                             <BrowserPanel />
                         </div>
                     )}
                     {visualizerOpen && (
-                        <div className="fixed inset-x-0 z-50 border-t border-border bg-background overflow-hidden"
-                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))' }}>
+                        <div className="fixed inset-x-0 z-50 flex flex-col border-t border-border bg-background"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', height: '20vh', minHeight: '120px' }}>
                             <AudioVisualizer />
                         </div>
                     )}
                     {inspectorOpen && (
-                        <div className="fixed inset-x-0 z-50 flex flex-col bg-card border-t border-border overflow-hidden"
-                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', maxHeight: '60vh', minHeight: '40vh' }}>
+                        <div className="fixed inset-x-0 z-50 flex flex-col bg-card border-t border-border"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', height: '60vh' }}>
                             <Inspector />
                         </div>
                     )}
+                    {editorOpen && (
+                        <div className="fixed inset-x-0 z-50 flex flex-col bg-surface border-t border-border"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', height: '55vh' }}>
+                            <EditorPanel />
+                        </div>
+                    )}
 
-                    {/* Mobile bottom nav bar */}
+                    {/* Mobile bottom nav bar — 4 items: Browser, Editor, Inspector, Visualizer
+                         Tapping the active panel collapses it; tapping another opens it exclusively */}
                     <nav className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t border-border bg-card"
                         style={{ height: 'calc(3rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
                         <button
-                            onClick={toggleBrowser}
-                            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${browserOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                            onClick={() => browserOpen ? closeAllPanels() : openMobilePanel('browser')}
+                            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${browserOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
                             <LayoutTemplate className="h-5 w-5" />
                             <span className="text-[10px]">Browser</span>
                         </button>
                         <button
-                            onClick={toggleVisualizer}
-                            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${visualizerOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                            onClick={() => {
+                                if (editorOpen) {
+                                    closeAllPanels();
+                                } else {
+                                    // Open editor for the currently selected clip (if any),
+                                    // otherwise show whatever was last being edited
+                                    const clipId = selectedClipIds[0];
+                                    if (clipId) {
+                                        openEditor(clipId);
+                                    } else {
+                                        openMobilePanel('editor');
+                                    }
+                                }
+                            }}
+                            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${editorOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
-                            <AudioWaveform className="h-5 w-5" />
-                            <span className="text-[10px]">Visualizer</span>
+                            <Piano className="h-5 w-5" />
+                            <span className="text-[10px]">Editor</span>
                         </button>
                         <button
-                            onClick={toggleInspector}
-                            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${inspectorOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                            onClick={() => inspectorOpen ? closeAllPanels() : openMobilePanel('inspector')}
+                            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${inspectorOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
                             <SlidersHorizontal className="h-5 w-5" />
                             <span className="text-[10px]">Inspector</span>
+                        </button>
+                        <button
+                            onClick={() => visualizerOpen ? closeAllPanels() : openMobilePanel('visualizer')}
+                            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${visualizerOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                        >
+                            <AudioWaveform className="h-5 w-5" />
+                            <span className="text-[10px]">Visualizer</span>
                         </button>
                     </nav>
                 </div>

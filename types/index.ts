@@ -18,6 +18,7 @@ export interface Project {
     createdAt: number;
     updatedAt: number;
     latencyOffset?: number; // ms, from calibration
+    projectLengthBars?: number; // user-configurable timeline length (default: 32)
 }
 
 export type MusicalKey = 'C' | 'C#' | 'D' | 'D#' | 'E' | 'F' | 'F#' | 'G' | 'G#' | 'A' | 'A#' | 'B';

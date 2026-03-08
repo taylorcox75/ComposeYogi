@@ -7,6 +7,8 @@ import { create } from 'zustand';
 import { temporal } from 'zundo';
 import { v4 as uuid } from 'uuid';
 import { TEMPLATES } from '@/lib/browser';
+import { useUIStore } from './ui';
+import { playoutManager } from '@/lib/audio/playout';
 import type {
     Project,
     Track,
@@ -73,6 +75,7 @@ interface ProjectActions {
     setKey: (key: MusicalKey) => void;
     setScale: (scale: MusicalScale) => void;
     setTimeSignature: (timeSignature: [number, number]) => void;
+    setProjectLengthBars: (bars: number) => void;
 
     // Save state
     markSaved: () => void;
@@ -391,6 +394,7 @@ const projectStoreBase = (
     },
 
     deleteTrack: (trackId) => {
+        const clipsToDelete = get().project?.clips.filter((c) => c.trackId === trackId).map((c) => c.id) ?? [];
         set((state) => ({
             project: state.project
                 ? {
@@ -402,6 +406,7 @@ const projectStoreBase = (
                 : null,
             hasUnsavedChanges: true,
         }));
+        useUIStore.getState().removeDeletedClips(clipsToDelete);
     },
 
     reorderTracks: (trackIds) => {
@@ -483,6 +488,8 @@ const projectStoreBase = (
                 : null,
             hasUnsavedChanges: true,
         }));
+        useUIStore.getState().removeDeletedClips([clipId]);
+        playoutManager.disposeEditorPreview(clipId);
     },
 
     deleteClips: (clipIds) => {
@@ -496,6 +503,8 @@ const projectStoreBase = (
                 : null,
             hasUnsavedChanges: true,
         }));
+        useUIStore.getState().removeDeletedClips(clipIds);
+        clipIds.forEach((id) => playoutManager.disposeEditorPreview(id));
     },
 
     duplicateClip: (clipId, offsetBars = 0) => {
@@ -568,7 +577,7 @@ const projectStoreBase = (
                 ? {
                     ...state.project,
                     clips: state.project.clips.map((c) =>
-                        c.id === clipId ? { ...c, lengthBars: Math.max(1, newLengthBars) } : c
+                        c.id === clipId ? { ...c, lengthBars: Math.max(0.25, newLengthBars) } : c
                     ),
                     updatedAt: Date.now(),
                 }
@@ -587,6 +596,9 @@ const projectStoreBase = (
         const splitPoint = atBar - original.startBar;
         if (splitPoint <= 0 || splitPoint >= original.lengthBars) return null;
 
+        const beatsPerBar = state.project.timeSignature[0];
+        const splitBeat = splitPoint * beatsPerBar;
+
         const firstClip: Clip = {
             ...original,
             lengthBars: splitPoint,
@@ -599,17 +611,17 @@ const projectStoreBase = (
             startBar: atBar,
             lengthBars: original.lengthBars - splitPoint,
             notes: original.notes
-                ?.filter((n) => n.startBeat >= splitPoint * 4) // 4 beats per bar
+                ?.filter((n) => n.startBeat >= splitBeat)
                 .map((n) => ({
                     ...n,
                     id: uuid(),
-                    startBeat: n.startBeat - splitPoint * 4,
+                    startBeat: n.startBeat - splitBeat,
                 })),
         };
 
         // Filter notes for first clip
         if (firstClip.notes) {
-            firstClip.notes = firstClip.notes.filter((n) => n.startBeat < splitPoint * 4);
+            firstClip.notes = firstClip.notes.filter((n) => n.startBeat < splitBeat);
         }
 
         set((s) => ({
@@ -732,6 +744,15 @@ const projectStoreBase = (
         set((state) => ({
             project: state.project
                 ? { ...state.project, timeSignature, updatedAt: Date.now() }
+                : null,
+            hasUnsavedChanges: true,
+        }));
+    },
+
+    setProjectLengthBars: (bars) => {
+        set((state) => ({
+            project: state.project
+                ? { ...state.project, projectLengthBars: Math.max(4, bars), updatedAt: Date.now() }
                 : null,
             hasUnsavedChanges: true,
         }));

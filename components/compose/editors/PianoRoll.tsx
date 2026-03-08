@@ -57,6 +57,30 @@ export function PianoRoll({ clip }: PianoRollProps) {
     const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
     const [isDragging, setIsDragging] = useState(false);
 
+    // Reset note selection when the edited clip changes
+    useEffect(() => {
+        setSelectedNoteIds(new Set());
+    }, [clip.id]);
+
+    // Auto-scroll the grid to show the existing notes (or middle C if none)
+    // when the clip first opens in the editor.
+    useEffect(() => {
+        if (!gridRef.current) return;
+        let targetPitch = 60; // C4 default
+        if (clip.notes && clip.notes.length > 0) {
+            const sorted = [...clip.notes].sort((a, b) => a.pitch - b.pitch);
+            targetPitch = sorted[Math.floor(sorted.length / 2)].pitch;
+        }
+        const row = pitchToRow(targetPitch);
+        const scrollTop = row * NOTE_HEIGHT - gridRef.current.clientHeight / 2;
+        gridRef.current.scrollTop = Math.max(0, scrollTop);
+        // Also sync piano key scroll
+        if (keysRef.current) {
+            keysRef.current.scrollTop = Math.max(0, scrollTop);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clip.id]);
+
     // Resize state
     const [resizingNote, setResizingNote] = useState<{ id: string; startDuration: number; startX: number } | null>(null);
 
@@ -124,9 +148,13 @@ export function PianoRoll({ clip }: PianoRollProps) {
         return Math.round(value / snapBeats) * snapBeats;
     }, [snapBeats]);
 
-    // Handle click on grid - toggle notes (like Drum Sequencer)
-    const handleGridClick = useCallback((e: React.MouseEvent) => {
+    // Handle tap on grid - toggle notes (like Drum Sequencer)
+    // Uses onPointerDown for instant response on touch (no 300ms click delay).
+    const handleGridClick = useCallback((e: React.PointerEvent) => {
         if (!gridRef.current || isDragging) return;
+        // Only handle primary pointer (finger 0 / left mouse button)
+        if (e.button !== 0 && e.pointerType !== 'touch') return;
+        e.preventDefault();
 
         const rect = gridRef.current.getBoundingClientRect();
         const scrollLeft = gridRef.current.scrollLeft;
@@ -172,21 +200,28 @@ export function PianoRoll({ clip }: PianoRollProps) {
                 velocity: 100,
             });
 
-            if (newNote) {
-                const durationSec = snapBeats * (60 / (project?.bpm || 120));
-                playoutManager.previewNote(clip.id, pitch, durationSec, 100 / 127);
+            if (newNote && project) {
+                const durationSec = snapBeats * (60 / (project.bpm || 120));
+                playoutManager.ensureAndPreview(project, clip.id, pitch, durationSec, 100 / 127);
             }
         }
     }, [
         snapBeats, pixelsPerBeat, clip.id, clip.notes, totalBeats,
         pitchToRow, rowToPitch, snapToGrid, addNote, deleteNote,
-        project?.bpm, isDragging
+        project, isDragging
     ]);
 
-    // Handle key preview
+    // Handle key preview (piano keyboard click)
     const handleKeyClick = useCallback((pitch: number) => {
-        playoutManager.previewNote(clip.id, pitch, 0.3, 0.8);
-    }, [clip.id]);
+        if (project) {
+            playoutManager.ensureAndPreview(project, clip.id, pitch, 0.3, 0.8);
+        }
+    }, [clip.id, project]);
+
+    const handleKeyPointerDown = useCallback((e: React.PointerEvent, pitch: number) => {
+        e.preventDefault();
+        handleKeyClick(pitch);
+    }, [handleKeyClick]);
 
     // Delete selected notes
     const handleDeleteSelected = useCallback(() => {
@@ -209,9 +244,11 @@ export function PianoRoll({ clip }: PianoRollProps) {
         }
     }, [handleDeleteSelected, selectedNoteIds.size]);
 
-    // Handle note resize start
-    const handleResizeStart = useCallback((noteId: string, e: React.MouseEvent) => {
+    // Handle note resize start — uses Pointer Events to work on both mouse and touch
+    const handleResizeStart = useCallback((noteId: string, e: React.PointerEvent) => {
         e.stopPropagation();
+        e.preventDefault();
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         const note = clip.notes?.find(n => n.id === noteId);
         if (!note) return;
 
@@ -223,16 +260,15 @@ export function PianoRoll({ clip }: PianoRollProps) {
         setIsDragging(true);
     }, [clip.notes]);
 
-    // Handle mouse move for resizing
+    // Handle pointer move/up for note resize (works on mouse and touch)
     useEffect(() => {
         if (!resizingNote) return;
 
-        const handleMouseMove = (e: MouseEvent) => {
+        const handlePointerMove = (e: PointerEvent) => {
             const deltaX = e.clientX - resizingNote.startX;
             const deltaDuration = deltaX / pixelsPerBeat;
             const newDuration = Math.max(snapBeats, snapToGrid(resizingNote.startDuration + deltaDuration));
 
-            // Don't allow resizing beyond clip length
             const note = clip.notes?.find(n => n.id === resizingNote.id);
             if (note) {
                 const maxDuration = totalBeats - note.startBeat;
@@ -241,17 +277,19 @@ export function PianoRoll({ clip }: PianoRollProps) {
             }
         };
 
-        const handleMouseUp = () => {
+        const handlePointerUp = () => {
             setResizingNote(null);
             setIsDragging(false);
         };
 
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', handlePointerUp);
+        window.addEventListener('pointercancel', handlePointerUp);
 
         return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('pointermove', handlePointerMove);
+            window.removeEventListener('pointerup', handlePointerUp);
+            window.removeEventListener('pointercancel', handlePointerUp);
         };
     }, [resizingNote, pixelsPerBeat, snapBeats, snapToGrid, clip.id, clip.notes, totalBeats, updateNote]);
 
@@ -359,8 +397,8 @@ export function PianoRoll({ clip }: PianoRollProps) {
                                     ${isInScale(pitch) ? '' : 'opacity-40'}
                                     hover:brightness-110 active:brightness-90
                                 `}
-                                style={{ height: NOTE_HEIGHT }}
-                                onClick={() => handleKeyClick(pitch)}
+                                style={{ height: NOTE_HEIGHT, touchAction: 'manipulation' }}
+                                onPointerDown={(e) => handleKeyPointerDown(e, pitch)}
                             >
                                 {noteName === 'C' ? `C${octave}` : ''}
                             </button>
@@ -372,7 +410,7 @@ export function PianoRoll({ clip }: PianoRollProps) {
                 <div
                     ref={gridRef}
                     className="flex-1 overflow-auto bg-background relative"
-                    onClick={handleGridClick}
+                    onPointerDown={handleGridClick}
                     onScroll={(e) => {
                         // Sync piano keys scroll with grid vertical scroll
                         if (keysRef.current) {
@@ -454,7 +492,7 @@ export function PianoRoll({ clip }: PianoRollProps) {
                                     height={NOTE_HEIGHT - 1}
                                     isSelected={isSelected}
                                     isInScale={isInScale(note.pitch)}
-                                    onResizeStart={(e) => handleResizeStart(note.id, e)}
+                                    onResizeStart={(e: React.PointerEvent) => handleResizeStart(note.id, e)}
                                 />
                             );
                         })}
@@ -502,7 +540,7 @@ interface NoteBlockProps {
     height: number;
     isSelected: boolean;
     isInScale: boolean;
-    onResizeStart: (e: React.MouseEvent) => void;
+    onResizeStart: (e: React.PointerEvent) => void;
 }
 
 const NoteBlock = memo(function NoteBlock({
@@ -534,10 +572,10 @@ const NoteBlock = memo(function NoteBlock({
                 opacity: 0.5 + (note.velocity / 127) * 0.5,
             }}
         >
-            {/* Resize handle (right edge) */}
+            {/* Resize handle (right edge) — wider for touch */}
             <div
-                className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/50 active:bg-white/70"
-                onMouseDown={onResizeStart}
+                className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize touch-none hover:bg-white/50 active:bg-white/70"
+                onPointerDown={onResizeStart}
             />
         </div>
     );
