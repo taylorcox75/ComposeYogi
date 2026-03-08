@@ -30,7 +30,7 @@ import Link from 'next/link';
 // getServerSnapshot and cause an infinite loop during SSR/hydration.
 function TransportSkeleton() {
     return (
-        <header className="flex h-transport items-center border-b border-border bg-card px-4 gap-3">
+        <header className="relative z-[60] flex h-transport items-center border-b border-border bg-card px-4 gap-3">
             <Link href="/" className="flex items-center gap-2 text-accent hover:opacity-80 transition-opacity">
                 <MusicWave barCount={4} color="accent" className="h-5" />
                 <span className="text-sm font-semibold tracking-tight">ComposeYogi</span>

@@ -216,7 +216,7 @@ export function Transport({
     return (
         // overflow-x-auto lets the bar scroll on narrow screens (mobile) while showing
         // everything on wide screens (desktop) — no separate mobile branch needed.
-        <header className="flex h-transport items-center border-b border-border bg-card overflow-x-auto">
+        <header className="relative z-[60] flex h-transport items-center border-b border-border bg-card overflow-x-auto">
             {/* w-full min-w-max: fills header on desktop, wider-than-screen on mobile → scroll */}
             <div className="flex items-center w-full min-w-max">
 
