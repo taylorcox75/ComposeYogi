@@ -161,28 +161,39 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
         return state;
     }, [clip.notes]);
 
-    // Toggle a step
+    // Toggle a step.
+    // IMPORTANT: reads notes directly from the Zustand store (not from the
+    // memoized `gridState` closure) so rapid taps always see the freshest
+    // state. Zustand set() is synchronous, so the store reflects addNote()
+    // before React re-renders, preventing ghost duplicates on fast input.
     const toggleStep = useCallback((rowIndex: number, stepIndex: number) => {
-        const key = `${rowIndex}-${stepIndex}`;
-        const existingNote = gridState.get(key);
+        // Fresh read — never stale even when tapping faster than React re-renders
+        const freshClip = useProjectStore.getState().project?.clips.find(c => c.id === clip.id);
+        const freshNotes = freshClip?.notes ?? [];
+
+        const sound = DRUM_SOUNDS[rowIndex];
+        const targetBeat = stepIndex / stepsPerBeat;
+
+        const existingNote = freshNotes.find(n =>
+            n.pitch === sound.pitch &&
+            Math.round(n.startBeat * stepsPerBeat) === stepIndex
+        );
 
         if (existingNote) {
             deleteNote(clip.id, existingNote.id);
         } else {
-            const sound = DRUM_SOUNDS[rowIndex];
             addNote(clip.id, {
                 pitch: sound.pitch,
-                startBeat: stepIndex / stepsPerBeat,
+                startBeat: targetBeat,
                 duration: 0.25,
                 velocity: 100,
             });
 
-            // Ensure audio is ready, then preview (initializes audio on first tap)
             if (project) {
                 playoutManager.ensureAndPreview(project, clip.id, sound.pitch, 0.1);
             }
         }
-    }, [clip.id, project, gridState, deleteNote, addNote]);
+    }, [clip.id, project, stepsPerBeat, deleteNote, addNote]);
 
     // Handle velocity change via drag
     const _handleVelocityDrag = useCallback((noteId: string, deltaY: number) => {
@@ -380,7 +391,13 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
                                                 ${isDownbeat ? 'bg-surface border-l-2 border-l-accent/50' : isBeat ? 'bg-surface/80 border-l border-l-border' : 'bg-background/60'}
                                                 hover:bg-accent/20
                                             `}
-                                                onClick={() => toggleStep(rowIndex, stepIndex)}
+                                                style={{ touchAction: 'manipulation' }}
+                                                onPointerDown={(e) => {
+                                                    // preventDefault stops the browser from firing a synthetic
+                                                    // click 300ms later, preventing accidental double-toggles
+                                                    e.preventDefault();
+                                                    toggleStep(rowIndex, stepIndex);
+                                                }}
                                                 onContextMenu={(e) => {
                                                     e.preventDefault();
                                                     if (note) {
