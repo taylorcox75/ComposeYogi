@@ -92,6 +92,8 @@ function ComposePageContent() {
     const toggleInspector = useUIStore((s) => s.toggleInspector);
     const toggleEditor = useUIStore((s) => s.toggleEditor);
     const toggleVisualizer = useUIStore((s) => s.toggleVisualizer);
+    const openMobilePanel = useUIStore((s) => s.openMobilePanel);
+    const closeAllPanels = useUIStore((s) => s.closeAllPanels);
     const setScrollX = useUIStore((s) => s.setScrollX);
     const zoomIn = useUIStore((s) => s.zoomIn);
     const zoomOut = useUIStore((s) => s.zoomOut);
@@ -374,65 +376,61 @@ function ComposePageContent() {
                     {(browserOpen || visualizerOpen || inspectorOpen || editorOpen) && (
                         <div
                             className="fixed inset-0 z-40 bg-black/40"
-                            onClick={() => {
-                                if (browserOpen) toggleBrowser();
-                                if (visualizerOpen) toggleVisualizer();
-                                if (inspectorOpen) toggleInspector();
-                                if (editorOpen) toggleEditor();
-                            }}
+                            onClick={() => closeAllPanels()}
                         />
                     )}
                     {browserOpen && (
-                        <div className="fixed inset-x-0 z-50 flex flex-col bg-surface border-t border-border overflow-hidden"
-                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', maxHeight: '60vh', minHeight: '40vh' }}>
+                        <div className="fixed inset-x-0 z-50 flex flex-col bg-surface border-t border-border"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', height: '55vh' }}>
                             <BrowserPanel />
                         </div>
                     )}
                     {visualizerOpen && (
-                        <div className="fixed inset-x-0 z-50 border-t border-border bg-background overflow-hidden"
-                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))' }}>
+                        <div className="fixed inset-x-0 z-50 flex flex-col border-t border-border bg-background"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', height: '20vh', minHeight: '120px' }}>
                             <AudioVisualizer />
                         </div>
                     )}
                     {inspectorOpen && (
-                        <div className="fixed inset-x-0 z-50 flex flex-col bg-card border-t border-border overflow-hidden"
-                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', maxHeight: '60vh', minHeight: '40vh' }}>
+                        <div className="fixed inset-x-0 z-50 flex flex-col bg-card border-t border-border"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', height: '60vh' }}>
                             <Inspector />
                         </div>
                     )}
                     {editorOpen && (
-                        <div className="fixed inset-x-0 z-50 flex flex-col bg-surface border-t border-border overflow-hidden"
-                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', maxHeight: '60vh', minHeight: '40vh' }}>
+                        <div className="fixed inset-x-0 z-50 flex flex-col bg-surface border-t border-border"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', height: '55vh' }}>
                             <EditorPanel />
                         </div>
                     )}
 
-                    {/* Mobile bottom nav bar — 4 items: Browser, Editor, Inspector, Visualizer */}
+                    {/* Mobile bottom nav bar — 4 items: Browser, Editor, Inspector, Visualizer
+                         Tapping the active panel collapses it; tapping another opens it exclusively */}
                     <nav className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t border-border bg-card"
                         style={{ height: 'calc(3rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
                         <button
-                            onClick={toggleBrowser}
+                            onClick={() => browserOpen ? closeAllPanels() : openMobilePanel('browser')}
                             className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${browserOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
                             <LayoutTemplate className="h-5 w-5" />
                             <span className="text-[10px]">Browser</span>
                         </button>
                         <button
-                            onClick={toggleEditor}
+                            onClick={() => editorOpen ? closeAllPanels() : openMobilePanel('editor')}
                             className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${editorOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
                             <Piano className="h-5 w-5" />
                             <span className="text-[10px]">Editor</span>
                         </button>
                         <button
-                            onClick={toggleInspector}
+                            onClick={() => inspectorOpen ? closeAllPanels() : openMobilePanel('inspector')}
                             className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${inspectorOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
                             <SlidersHorizontal className="h-5 w-5" />
                             <span className="text-[10px]">Inspector</span>
                         </button>
                         <button
-                            onClick={toggleVisualizer}
+                            onClick={() => visualizerOpen ? closeAllPanels() : openMobilePanel('visualizer')}
                             className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${visualizerOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
                             <AudioWaveform className="h-5 w-5" />

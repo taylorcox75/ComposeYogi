@@ -56,7 +56,7 @@ export function Inspector() {
     const selectedClip = project?.clips.find((c) => c.id === selectedClipId);
 
     return (
-        <aside className={`flex flex-col border-border bg-card ${isMobile ? 'w-full h-full border-t' : 'w-inspector border-l'}`}>
+        <aside className={`flex flex-col border-border bg-card overflow-hidden ${isMobile ? 'w-full flex-1 border-t' : 'w-inspector border-l'}`}>
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
                 <h2 className="text-sm font-semibold">Inspector</h2>

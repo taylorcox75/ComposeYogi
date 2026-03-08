@@ -9,6 +9,7 @@ import {
     AudioWaveform
 } from 'lucide-react';
 import { useProjectStore, useUIStore } from '@/lib/store';
+import { useIsMobile } from '@/hooks';
 import { Button } from '@/components/ui';
 import {
     Tooltip,
@@ -25,6 +26,7 @@ export function EditorPanel() {
     const selectedClipIds = useUIStore((s) => s.selectedClipIds);
     const toggleEditor = useUIStore((s) => s.toggleEditor);
     const project = useProjectStore((s) => s.project);
+    const isMobile = useIsMobile();
 
     const selectedClipId = selectedClipIds[0] || null;
     const selectedClip = project?.clips.find((c) => c.id === selectedClipId);
@@ -49,7 +51,7 @@ export function EditorPanel() {
     }, [selectedClip?.id, selectedClip?.type]);
 
     return (
-        <div className="flex h-editor flex-col border-t border-border bg-surface">
+        <div className={`flex flex-col border-t border-border bg-surface ${isMobile ? 'flex-1 min-h-0' : 'h-editor'}`}>
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-3 py-1">
                 <div className="flex items-center gap-1">

@@ -51,6 +51,9 @@ interface UIActions {
     toggleVisualizer: () => void;
     openEditor: (clipId: string) => void;
     closeEditor: () => void;
+    // Mobile: open one panel exclusively (closes all others)
+    openMobilePanel: (panel: 'browser' | 'inspector' | 'editor' | 'visualizer') => void;
+    closeAllPanels: () => void;
 
     // Selection
     selectTrack: (trackId: string | null) => void;
@@ -171,10 +174,17 @@ export const useUIStore = create<UIStore>((set, get) => ({
     },
 
     openEditor: (clipId) => {
+        const { isMobile } = get();
         set({
             editorOpen: true,
             activeEditorClipId: clipId,
             selectedClipIds: [clipId],
+            // On mobile: close all other panels so editor opens exclusively
+            ...(isMobile ? {
+                browserOpen: false,
+                inspectorOpen: false,
+                visualizerOpen: false,
+            } : {}),
         });
     },
 
@@ -183,6 +193,24 @@ export const useUIStore = create<UIStore>((set, get) => ({
             editorOpen: false,
             activeEditorClipId: null,
             editorScope: 'arrangement',
+        });
+    },
+
+    openMobilePanel: (panel) => {
+        set({
+            browserOpen: panel === 'browser',
+            inspectorOpen: panel === 'inspector',
+            editorOpen: panel === 'editor',
+            visualizerOpen: panel === 'visualizer',
+        });
+    },
+
+    closeAllPanels: () => {
+        set({
+            browserOpen: false,
+            inspectorOpen: false,
+            editorOpen: false,
+            visualizerOpen: false,
         });
     },
 
