@@ -126,7 +126,54 @@ class PlayoutManager {
     }
 
     public updateTrackEffects(trackId: string, effects: TrackEffect[]): void {
-        this.rebuildTrackEffects(trackId, effects);
+        const existing = this.trackEffects.get(trackId) ?? [];
+
+        // If the number or types of effects changed, do a full rebuild
+        const structureChanged =
+            existing.length !== effects.length ||
+            effects.some((fx, i) => {
+                const node = existing[i];
+                if (!node) return true;
+                // Check type match by constructor name vs effect.type
+                if (fx.type === 'reverb' && !(node instanceof Tone.Reverb)) return true;
+                if (fx.type === 'delay' && !(node instanceof Tone.FeedbackDelay)) return true;
+                if (fx.type === 'distortion' && !(node instanceof Tone.Distortion)) return true;
+                if (fx.type === 'filter' && !(node instanceof Tone.Filter)) return true;
+                if (fx.type === 'compression' && !(node instanceof Tone.Compressor)) return true;
+                return false;
+            });
+
+        if (structureChanged) {
+            this.rebuildTrackEffects(trackId, effects);
+            return;
+        }
+
+        // Only params changed — update nodes in-place to avoid audio dropout
+        effects.forEach((fx, i) => {
+            const node = existing[i];
+            if (!node) return;
+            try {
+                if (node instanceof Tone.Reverb) {
+                    if (fx.params.wet !== undefined) node.wet.value = fx.params.wet as number;
+                    if (fx.params.decay !== undefined) node.decay = fx.params.decay as number;
+                } else if (node instanceof Tone.FeedbackDelay) {
+                    if (fx.params.wet !== undefined) node.wet.value = fx.params.wet as number;
+                    if (fx.params.feedback !== undefined) node.feedback.value = fx.params.feedback as number;
+                    if (fx.params.delayTime !== undefined) node.delayTime.value = fx.params.delayTime as number;
+                } else if (node instanceof Tone.Distortion) {
+                    if (fx.params.wet !== undefined) node.wet.value = fx.params.wet as number;
+                    if (fx.params.distortion !== undefined) node.distortion = fx.params.distortion as number;
+                } else if (node instanceof Tone.Filter) {
+                    if (fx.params.frequency !== undefined) node.frequency.value = fx.params.frequency as number;
+                    if (fx.params.Q !== undefined) node.Q.value = fx.params.Q as number;
+                } else if (node instanceof Tone.Compressor) {
+                    if (fx.params.threshold !== undefined) node.threshold.value = fx.params.threshold as number;
+                    if (fx.params.ratio !== undefined) node.ratio.value = fx.params.ratio as number;
+                }
+            } catch {
+                // Ignore in case node was disposed concurrently
+            }
+        });
     }
 
     private rebuildTrackEffects(trackId: string, effects: TrackEffect[]): void {
