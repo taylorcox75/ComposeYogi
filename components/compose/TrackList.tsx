@@ -876,6 +876,71 @@ export function TrackList() {
         setScrollX(newScrollX);
     }, [zoom, pixelsPerBeat, beatsPerBar, setZoom, setScrollX]);
 
+    // ----------------------------------------
+    // Pinch-to-zoom for touch devices
+    // ----------------------------------------
+    const pinchRef = useRef<{ distance: number; midX: number; scrollLeft: number } | null>(null);
+
+    const getPinchDistance = (t1: Touch, t2: Touch) =>
+        Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+
+    const handleTouchStartPinch = useCallback((e: TouchEvent) => {
+        if (e.touches.length !== 2) return;
+        const container = scrollContainerRef.current;
+        if (!container) return;
+        const dist = getPinchDistance(e.touches[0], e.touches[1]);
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        pinchRef.current = { distance: dist, midX, scrollLeft: container.scrollLeft };
+    }, []);
+
+    const handleTouchMovePinch = useCallback((e: TouchEvent) => {
+        if (e.touches.length !== 2 || !pinchRef.current) return;
+        e.preventDefault();
+
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const newDist = getPinchDistance(e.touches[0], e.touches[1]);
+        const ratio = newDist / pinchRef.current.distance;
+
+        const MIN_ZOOM = 20;
+        const MAX_ZOOM = 200;
+        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * ratio));
+
+        // Anchor zoom to the pinch midpoint
+        const rect = container.getBoundingClientRect();
+        const midClientX = pinchRef.current.midX;
+        const midX = midClientX - rect.left + pinchRef.current.scrollLeft;
+        const beatUnderMid = midX / pixelsPerBeat;
+        const newPixelsPerBeat = newZoom / beatsPerBar;
+        const newMidX = beatUnderMid * newPixelsPerBeat;
+        const newScrollX = Math.max(0, newMidX - (midClientX - rect.left));
+
+        setZoom(newZoom);
+        setScrollX(newScrollX);
+
+        // Update reference for next move event
+        pinchRef.current = { distance: newDist, midX: pinchRef.current.midX, scrollLeft: newScrollX };
+    }, [zoom, pixelsPerBeat, beatsPerBar, setZoom, setScrollX]);
+
+    const handleTouchEndPinch = useCallback(() => {
+        pinchRef.current = null;
+    }, []);
+
+    // Register non-passive touch listeners on the scroll container
+    useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+        container.addEventListener('touchstart', handleTouchStartPinch, { passive: true });
+        container.addEventListener('touchmove', handleTouchMovePinch, { passive: false });
+        container.addEventListener('touchend', handleTouchEndPinch, { passive: true });
+        return () => {
+            container.removeEventListener('touchstart', handleTouchStartPinch);
+            container.removeEventListener('touchmove', handleTouchMovePinch);
+            container.removeEventListener('touchend', handleTouchEndPinch);
+        };
+    }, [handleTouchStartPinch, handleTouchMovePinch, handleTouchEndPinch]);
+
     const handleAddTrack = useCallback(() => {
         addTrack('midi', `Track ${(project?.tracks.length || 0) + 1}`);
     }, [addTrack, project?.tracks.length]);
