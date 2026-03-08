@@ -25,6 +25,8 @@ import {
     Keyboard,
     ZoomIn,
     Minus,
+    Undo2,
+    Redo2,
 } from 'lucide-react';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 import { ExportModal } from './ExportModal';
@@ -33,6 +35,7 @@ import { useTheme } from 'next-themes';
 import { MusicWave } from '@/components/MusicWave';
 import { useProjectStore, usePlaybackStore, useUIStore } from '@/lib/store';
 import { playbackRefs } from '@/lib/store/playback';
+import { useIsMobile } from '@/hooks';
 import { audioEngine, recordingManager } from '@/lib/audio';
 import { formatTime, formatBarsBeats } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -91,6 +94,23 @@ export function Transport({
         countInBars,
         toggleLoop,
     } = usePlaybackStore();
+
+    const isMobile = useIsMobile();
+
+    // Undo/redo — subscribe to temporal store for reactive canUndo/canRedo
+    const [canUndo, setCanUndo] = useState(false);
+    const [canRedo, setCanRedo] = useState(false);
+    useEffect(() => {
+        const syncHistory = () => {
+            const t = useProjectStore.temporal.getState();
+            setCanUndo(t.pastStates.length > 0);
+            setCanRedo(t.futureStates.length > 0);
+        };
+        syncHistory();
+        return useProjectStore.temporal.subscribe(syncHistory);
+    }, []);
+    const undo = () => useProjectStore.temporal.getState().undo();
+    const redo = () => useProjectStore.temporal.getState().redo();
 
     // Zoom controls
     const zoom = useUIStore((s) => s.zoom);
@@ -213,6 +233,80 @@ export function Transport({
 
     if (!project) return null;
 
+    // ── Mobile transport: compact single-row with only essential controls ───
+    if (isMobile) {
+        return (
+            <header className="relative z-[60] flex h-transport items-center justify-between border-b border-border bg-card px-2 gap-1 shrink-0">
+                {/* Logo (compact) */}
+                <Link href="/" className="flex items-center gap-1 text-accent shrink-0">
+                    <MusicWave barCount={4} color="accent" className="h-4" />
+                </Link>
+
+                {/* Undo / Redo */}
+                <div className="flex items-center gap-0.5">
+                    <Button variant="ghost" size="icon-sm" disabled={!canUndo} onClick={() => undo()} aria-label="Undo">
+                        <Undo2 className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon-sm" disabled={!canRedo} onClick={() => redo()} aria-label="Redo">
+                        <Redo2 className="h-4 w-4" />
+                    </Button>
+                </div>
+
+                {/* Playback: SkipBack + Play/Pause + Stop */}
+                <div className="flex items-center gap-0.5 bg-background/50 rounded-lg px-1 py-1">
+                    <Button variant="transport" size="icon-sm" onClick={onStop}>
+                        <SkipBack className="h-4 w-4" />
+                    </Button>
+                    <Button
+                        variant={isPlaying ? "transport-active" : "transport"}
+                        size="icon-sm"
+                        onClick={onPlayPause}
+                    >
+                        {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                    </Button>
+                    <Button variant="transport" size="icon-sm" onClick={onStop}>
+                        <Square className="h-3 w-3" />
+                    </Button>
+                    <Button
+                        variant={isLooping ? "transport-active" : "transport"}
+                        size="icon-sm"
+                        onClick={toggleLoop}
+                    >
+                        <Repeat className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+
+                {/* BPM */}
+                <div className="flex items-center gap-1 bg-background rounded-md border border-border/50 px-2 py-1 shrink-0">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">BPM</span>
+                    <Input
+                        type="number"
+                        value={localBpm}
+                        onChange={(e) => setLocalBpm(Number(e.target.value))}
+                        onBlur={handleBpmBlur}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { handleBpmChange(localBpm); e.currentTarget.blur(); } }}
+                        className="h-6 w-12 border-0 bg-transparent p-0 text-center text-sm font-mono font-semibold focus-visible:ring-0 tabular-nums"
+                        min={20}
+                        max={300}
+                    />
+                </div>
+
+                {/* Save status */}
+                <div className="shrink-0">
+                    {saveStatus === 'saving' && <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />}
+                    {saveStatus === 'saved' && <Check className="h-3.5 w-3.5 text-green-500" />}
+                    {saveStatus === 'pending' && <Cloud className="h-3.5 w-3.5 text-yellow-500" />}
+                    {saveStatus === 'error' && <CloudOff className="h-3.5 w-3.5 text-destructive" />}
+                </div>
+
+                {/* Modals */}
+                <KeyboardShortcutsModal isOpen={false} onClose={() => {}} />
+                <ExportModal isOpen={showExportModal} onClose={() => setShowExportModal(false)} />
+                <ImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} />
+            </header>
+        );
+    }
+
     return (
         // overflow-x-auto lets the bar scroll on narrow screens (mobile) while showing
         // everything on wide screens (desktop) — no separate mobile branch needed.
@@ -273,6 +367,26 @@ export function Transport({
 
             {/* Center: Transport controls */}
             <div className="flex items-center">
+                {/* Undo / Redo — desktop */}
+                <div className="flex items-center gap-0.5 mr-2">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" disabled={!canUndo} onClick={() => undo()}>
+                                <Undo2 className="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom"><p>Undo <kbd className="ml-1 text-xs opacity-60">⌘Z</kbd></p></TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" disabled={!canRedo} onClick={() => redo()}>
+                                <Redo2 className="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom"><p>Redo <kbd className="ml-1 text-xs opacity-60">⌘⇧Z</kbd></p></TooltipContent>
+                    </Tooltip>
+                </div>
+
                 <div className="flex items-center bg-background/50 rounded-lg px-1 py-1 gap-0.5">
                     {/* Navigation controls */}
                     <div className="flex items-center">
