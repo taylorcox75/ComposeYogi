@@ -449,10 +449,11 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
                     </div>
                 )}
 
-                {/* Action buttons — shown on hover/select, always on mobile when selected */}
+                {/* Action buttons — shown on hover/select, always on mobile when selected.
+                    Placed at top-left to avoid clashing with the right resize handle. */}
                 {(isHovered || isSelected) && !dragMode && (
                     <div
-                        className="absolute top-0.5 right-0.5 flex items-center gap-0.5 z-10"
+                        className="absolute top-0.5 left-2 flex items-center gap-0.5 z-10"
                         onPointerDown={(e) => e.stopPropagation()}
                     >
                         <button
