@@ -216,9 +216,11 @@ export function PianoRoll({ clip }: PianoRollProps) {
         }
     }, [handleDeleteSelected, selectedNoteIds.size]);
 
-    // Handle note resize start
-    const handleResizeStart = useCallback((noteId: string, e: React.MouseEvent) => {
+    // Handle note resize start — uses Pointer Events to work on both mouse and touch
+    const handleResizeStart = useCallback((noteId: string, e: React.PointerEvent) => {
         e.stopPropagation();
+        e.preventDefault();
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         const note = clip.notes?.find(n => n.id === noteId);
         if (!note) return;
 
@@ -230,16 +232,15 @@ export function PianoRoll({ clip }: PianoRollProps) {
         setIsDragging(true);
     }, [clip.notes]);
 
-    // Handle mouse move for resizing
+    // Handle pointer move/up for note resize (works on mouse and touch)
     useEffect(() => {
         if (!resizingNote) return;
 
-        const handleMouseMove = (e: MouseEvent) => {
+        const handlePointerMove = (e: PointerEvent) => {
             const deltaX = e.clientX - resizingNote.startX;
             const deltaDuration = deltaX / pixelsPerBeat;
             const newDuration = Math.max(snapBeats, snapToGrid(resizingNote.startDuration + deltaDuration));
 
-            // Don't allow resizing beyond clip length
             const note = clip.notes?.find(n => n.id === resizingNote.id);
             if (note) {
                 const maxDuration = totalBeats - note.startBeat;
@@ -248,17 +249,19 @@ export function PianoRoll({ clip }: PianoRollProps) {
             }
         };
 
-        const handleMouseUp = () => {
+        const handlePointerUp = () => {
             setResizingNote(null);
             setIsDragging(false);
         };
 
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', handlePointerUp);
+        window.addEventListener('pointercancel', handlePointerUp);
 
         return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('pointermove', handlePointerMove);
+            window.removeEventListener('pointerup', handlePointerUp);
+            window.removeEventListener('pointercancel', handlePointerUp);
         };
     }, [resizingNote, pixelsPerBeat, snapBeats, snapToGrid, clip.id, clip.notes, totalBeats, updateNote]);
 
@@ -461,7 +464,7 @@ export function PianoRoll({ clip }: PianoRollProps) {
                                     height={NOTE_HEIGHT - 1}
                                     isSelected={isSelected}
                                     isInScale={isInScale(note.pitch)}
-                                    onResizeStart={(e) => handleResizeStart(note.id, e)}
+                                    onResizeStart={(e: React.PointerEvent) => handleResizeStart(note.id, e)}
                                 />
                             );
                         })}
@@ -509,7 +512,7 @@ interface NoteBlockProps {
     height: number;
     isSelected: boolean;
     isInScale: boolean;
-    onResizeStart: (e: React.MouseEvent) => void;
+    onResizeStart: (e: React.PointerEvent) => void;
 }
 
 const NoteBlock = memo(function NoteBlock({
@@ -541,10 +544,10 @@ const NoteBlock = memo(function NoteBlock({
                 opacity: 0.5 + (note.velocity / 127) * 0.5,
             }}
         >
-            {/* Resize handle (right edge) */}
+            {/* Resize handle (right edge) — wider for touch */}
             <div
-                className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/50 active:bg-white/70"
-                onMouseDown={onResizeStart}
+                className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize touch-none hover:bg-white/50 active:bg-white/70"
+                onPointerDown={onResizeStart}
             />
         </div>
     );
