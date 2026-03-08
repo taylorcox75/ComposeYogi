@@ -545,6 +545,7 @@ export function TrackList() {
     const updateTrack = useProjectStore((s) => s.updateTrack);
     const deleteTrack = useProjectStore((s) => s.deleteTrack);
     const reorderTracks = useProjectStore((s) => s.reorderTracks);
+    const setProjectLengthBars = useProjectStore((s) => s.setProjectLengthBars);
     const selectTrack = useUIStore((s) => s.selectTrack);
     const selectedTrackId = useUIStore((s) => s.selectedTrackId);
     const zoom = useUIStore((s) => s.zoom);
@@ -566,7 +567,8 @@ export function TrackList() {
 
     const beatsPerBar = project?.timeSignature[0] || 4;
     const pixelsPerBeat = zoom / beatsPerBar;
-    const projectLengthBeats = DEFAULT_PROJECT_BARS * beatsPerBar;
+    const projectLengthBars = project?.projectLengthBars ?? DEFAULT_PROJECT_BARS;
+    const projectLengthBeats = projectLengthBars * beatsPerBar;
 
     // DnD sensors for track reordering
     const sensors = useSensors(
@@ -773,6 +775,49 @@ export function TrackList() {
         return () => canvas.removeEventListener('touchmove', rulerTouchMoveHandler);
     }, [rulerTouchMoveHandler]);
 
+    // ----------------------------------------
+    // Project end handle — drag to set length
+    // ----------------------------------------
+    const endHandleDraggingRef = useRef(false);
+    const endHandleDragStartRef = useRef<{ clientX: number; originalBars: number } | null>(null);
+    const [endHandleDragBars, setEndHandleDragBars] = useState<number | null>(null); // live preview value
+
+    const pixelsPerBar = pixelsPerBeat * beatsPerBar;
+
+    const endHandleFromClientX = useCallback((clientX: number, startClientX: number, originalBars: number) => {
+        const deltaX = clientX - startClientX;
+        const deltaBars = deltaX / pixelsPerBar;
+        return Math.max(4, Math.round(originalBars + deltaBars));
+    }, [pixelsPerBar]);
+
+    const handleEndHandlePointerDown = useCallback((e: React.PointerEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        endHandleDraggingRef.current = true;
+        endHandleDragStartRef.current = { clientX: e.clientX, originalBars: projectLengthBars };
+
+        const onMove = (ev: PointerEvent) => {
+            if (!endHandleDragStartRef.current) return;
+            const bars = endHandleFromClientX(ev.clientX, endHandleDragStartRef.current.clientX, endHandleDragStartRef.current.originalBars);
+            setEndHandleDragBars(bars);
+        };
+        const onUp = (ev: PointerEvent) => {
+            if (!endHandleDragStartRef.current) return;
+            const bars = endHandleFromClientX(ev.clientX, endHandleDragStartRef.current.clientX, endHandleDragStartRef.current.originalBars);
+            setProjectLengthBars(bars);
+            setEndHandleDragBars(null);
+            endHandleDraggingRef.current = false;
+            endHandleDragStartRef.current = null;
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+    }, [projectLengthBars, endHandleFromClientX, setProjectLengthBars]);
+
+    const displayLengthBars = endHandleDragBars ?? projectLengthBars;
+    const endHandleX = displayLengthBars * pixelsPerBar;
 
     // Apply scrollX state to container
     useEffect(() => {
@@ -861,7 +906,11 @@ export function TrackList() {
 
     if (!project) return null;
 
-    const contentWidth = Math.max(projectLengthBeats, Math.ceil(300 * (project.bpm / 60))) * pixelsPerBeat;
+    // Content width: use user-set project length (with some extra scroll room) but never less than 5min at current BPM
+    const contentWidth = Math.max(
+        (displayLengthBars + 4) * pixelsPerBar, // project length + 4 bars of extra room
+        Math.ceil(300 * (project.bpm / 60)) * pixelsPerBeat // 5 minutes at current BPM
+    );
     const trackIds = project.tracks.map((t) => t.id);
 
     return (
@@ -945,6 +994,21 @@ export function TrackList() {
                             pixelsPerBar={pixelsPerBeat * beatsPerBar}
                             rulerHeight={RULER_HEIGHT}
                         />
+                        {/* Project end handle — drag to resize timeline length */}
+                        <div
+                            className="absolute top-0 z-30 flex flex-col items-center select-none"
+                            style={{ left: endHandleX - 8, height: RULER_HEIGHT, width: 16, cursor: 'ew-resize' }}
+                            onPointerDown={handleEndHandlePointerDown}
+                            title={`Project end: bar ${displayLengthBars}`}
+                        >
+                            {/* Vertical line */}
+                            <div className="absolute top-0 bottom-0 left-1/2 w-0.5 -translate-x-px bg-accent/80" />
+                            {/* Grab tab */}
+                            <div className="relative mt-0.5 flex items-center justify-center rounded-sm bg-accent text-accent-foreground"
+                                style={{ width: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: 1 }}>
+                                {endHandleDragBars !== null ? `${displayLengthBars}` : '⊣'}
+                            </div>
+                        </div>
                     </div>
 
                     {/* Track lanes area */}

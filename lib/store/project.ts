@@ -73,6 +73,7 @@ interface ProjectActions {
     setKey: (key: MusicalKey) => void;
     setScale: (scale: MusicalScale) => void;
     setTimeSignature: (timeSignature: [number, number]) => void;
+    setProjectLengthBars: (bars: number) => void;
 
     // Save state
     markSaved: () => void;
@@ -732,6 +733,15 @@ const projectStoreBase = (
         set((state) => ({
             project: state.project
                 ? { ...state.project, timeSignature, updatedAt: Date.now() }
+                : null,
+            hasUnsavedChanges: true,
+        }));
+    },
+
+    setProjectLengthBars: (bars) => {
+        set((state) => ({
+            project: state.project
+                ? { ...state.project, projectLengthBars: Math.max(4, bars), updatedAt: Date.now() }
                 : null,
             hasUnsavedChanges: true,
         }));
