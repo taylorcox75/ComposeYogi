@@ -2,6 +2,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { Play, Twitter, Linkedin, Instagram, Github } from 'lucide-react';
+import Script from 'next/script';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { MusicWave } from '@/components/MusicWave';
@@ -18,7 +19,13 @@ export default async function HomePage({ params }: PageProps) {
     const { locale } = await params;
     setRequestLocale(locale);
 
-    return <HomePageContent />;
+    return (
+        <>
+            <HomePageContent />
+            {/* UserHero feedback widget — only on the landing page, not the DAW */}
+            <Script src="https://userhero.co/widget.js" data-key="pk_live_f1iT3MsNLDWy88b4w9ty" strategy="lazyOnload" />
+        </>
+    );
 }
 
 function HomePageContent() {
