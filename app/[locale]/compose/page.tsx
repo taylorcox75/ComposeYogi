@@ -101,6 +101,7 @@ function ComposePageContent() {
     const selectedClipIds = useUIStore((s) => s.selectedClipIds);
     const clearSelection = useUIStore((s) => s.clearSelection);
     const activeEditorClipId = useUIStore((s) => s.activeEditorClipId);
+    const openEditor = useUIStore((s) => s.openEditor);
 
     // On mobile: auto-close panels to give the timeline maximum space
     useEffect(() => {
@@ -448,7 +449,20 @@ function ComposePageContent() {
                             <span className="text-[10px]">Browser</span>
                         </button>
                         <button
-                            onClick={() => editorOpen ? closeAllPanels() : openMobilePanel('editor')}
+                            onClick={() => {
+                                if (editorOpen) {
+                                    closeAllPanels();
+                                } else {
+                                    // Open editor for the currently selected clip (if any),
+                                    // otherwise show whatever was last being edited
+                                    const clipId = selectedClipIds[0];
+                                    if (clipId) {
+                                        openEditor(clipId);
+                                    } else {
+                                        openMobilePanel('editor');
+                                    }
+                                }
+                            }}
                             className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${editorOpen ? 'text-accent' : 'text-muted-foreground'}`}
                         >
                             <Piano className="h-5 w-5" />

@@ -110,16 +110,21 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
     const clipLeft = visualStartBar * pixelsPerBar;
     const ghostLeft = ghostStartBar !== null ? ghostStartBar * pixelsPerBar : null;
 
-    // Handle click - selection is handled in pointerDown, this just stops propagation
+    // Double-tap / double-click detection — works on both mouse (desktop) and
+    // touch (mobile) since `click` is synthesized from touch events.
+    // `onDoubleClick` alone is unreliable on mobile, so we track timing manually.
+    const lastTapTimeRef = useRef(0);
+
     const handleClick = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
-        // Selection handled in handlePointerDown to support Shift+click
-    }, []);
-
-    // Handle double-click to open editor
-    const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-        e.stopPropagation();
-        openEditor(clip.id);
+        const now = Date.now();
+        if (now - lastTapTimeRef.current < 350) {
+            // Second tap within 350ms → open editor
+            openEditor(clip.id);
+            lastTapTimeRef.current = 0;
+        } else {
+            lastTapTimeRef.current = now;
+        }
     }, [clip.id, openEditor]);
 
     // Delete this clip
@@ -404,7 +409,6 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
                     cursor: isDuplicating ? 'copy' : dragMode === 'move' ? 'grabbing' : dragMode ? 'ew-resize' : cursorStyle,
                 }}
                 onClick={handleClick}
-                onDoubleClick={handleDoubleClick}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMoveOnClip}
                 onPointerEnter={() => setIsHovered(true)}
@@ -457,18 +461,18 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
                         onPointerDown={(e) => e.stopPropagation()}
                     >
                         <button
-                            className="flex h-4 w-4 items-center justify-center rounded-sm bg-black/40 text-white/80 hover:bg-black/60 hover:text-white transition-colors"
+                            className="flex items-center justify-center rounded-sm bg-black/40 text-white/80 hover:bg-black/60 hover:text-white transition-colors"
+                            style={{ width: 20, height: 20, touchAction: 'manipulation' }}
                             onClick={handleDuplicate}
-                            onTouchEnd={handleDuplicate}
                             title="Duplicate clip"
                             aria-label="Duplicate clip"
                         >
                             <Copy className="h-2.5 w-2.5" />
                         </button>
                         <button
-                            className="flex h-4 w-4 items-center justify-center rounded-sm bg-black/40 text-white/80 hover:bg-red-500/80 hover:text-white transition-colors"
+                            className="flex items-center justify-center rounded-sm bg-black/40 text-white/80 hover:bg-red-500/80 hover:text-white transition-colors"
+                            style={{ width: 20, height: 20, touchAction: 'manipulation' }}
                             onClick={handleDelete}
-                            onTouchEnd={handleDelete}
                             title="Delete clip"
                             aria-label="Delete clip"
                         >

@@ -1429,27 +1429,38 @@ function TrackLane({ track, index, pixelsPerBeat, beatsPerBar, isSelected, onSel
         onSelect();
     }, [clearSelection, onSelect]);
 
-    // Double-click to create new clip
-    const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    // Double-tap / double-click on empty lane to create a new clip.
+    // Uses timing in onClick instead of onDoubleClick so it works on mobile touch.
+    const lastLaneTapRef = useRef(0);
+    const lastLaneTapPosRef = useRef({ x: 0, y: 0 });
+
+    const handleLaneTap = useCallback((e: React.MouseEvent) => {
         if (!project) return;
         if (e.target !== e.currentTarget) return; // Only on empty area
 
-        const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const beat = x / pixelsPerBeat;
-        const bar = Math.floor(beat / beatsPerBar);
+        const now = Date.now();
+        const dx = Math.abs(e.clientX - lastLaneTapPosRef.current.x);
+        const dy = Math.abs(e.clientY - lastLaneTapPosRef.current.y);
 
-        // Determine clip type based on track type/color
-        let clipType: 'midi' | 'drum' | 'audio' = 'midi';
-        if (track.type === 'audio') {
-            clipType = 'audio';
-        } else if (track.color === 'drums') {
-            clipType = 'drum';
+        if (now - lastLaneTapRef.current < 350 && dx < 20 && dy < 20) {
+            // Double-tap on the same spot → create new clip
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const beat = x / pixelsPerBeat;
+            const bar = Math.floor(beat / beatsPerBar);
+
+            let clipType: 'midi' | 'drum' | 'audio' = 'midi';
+            if (track.type === 'audio') clipType = 'audio';
+            else if (track.color === 'drums') clipType = 'drum';
+
+            const clip = addClip(track.id, clipType, bar, 1);
+            selectClip(clip.id);
+            openEditor(clip.id);
+            lastLaneTapRef.current = 0;
+        } else {
+            lastLaneTapRef.current = now;
+            lastLaneTapPosRef.current = { x: e.clientX, y: e.clientY };
         }
-
-        const clip = addClip(track.id, clipType, bar, 1); // 1 bar clip
-        selectClip(clip.id);
-        openEditor(clip.id);
     }, [project, track.id, track.type, track.color, pixelsPerBeat, beatsPerBar, addClip, selectClip, openEditor]);
 
     // Handle drag over
@@ -1611,8 +1622,7 @@ function TrackLane({ track, index, pixelsPerBeat, beatsPerBar, isSelected, onSel
                 top: index * TRACK_HEIGHT,
                 height: TRACK_HEIGHT,
             }}
-            onClick={handleLaneClick}
-            onDoubleClick={handleDoubleClick}
+            onClick={(e) => { handleLaneClick(e); handleLaneTap(e); }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
