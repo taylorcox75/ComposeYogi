@@ -597,6 +597,9 @@ class PlayoutManager {
                 this.disposeTrackChain(trackId);
             }
         }
+
+        // Apply solo logic: mute all non-soloed tracks when any track is soloed
+        this.updateSoloState(project.tracks);
     }
 
     private disposeTrackChain(trackId: string): void {
