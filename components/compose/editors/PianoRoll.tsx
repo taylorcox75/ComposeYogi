@@ -172,21 +172,23 @@ export function PianoRoll({ clip }: PianoRollProps) {
                 velocity: 100,
             });
 
-            if (newNote) {
-                const durationSec = snapBeats * (60 / (project?.bpm || 120));
-                playoutManager.previewNote(clip.id, pitch, durationSec, 100 / 127);
+            if (newNote && project) {
+                const durationSec = snapBeats * (60 / (project.bpm || 120));
+                playoutManager.ensureAndPreview(project, clip.id, pitch, durationSec, 100 / 127);
             }
         }
     }, [
         snapBeats, pixelsPerBeat, clip.id, clip.notes, totalBeats,
         pitchToRow, rowToPitch, snapToGrid, addNote, deleteNote,
-        project?.bpm, isDragging
+        project, isDragging
     ]);
 
-    // Handle key preview
+    // Handle key preview (piano keyboard click)
     const handleKeyClick = useCallback((pitch: number) => {
-        playoutManager.previewNote(clip.id, pitch, 0.3, 0.8);
-    }, [clip.id]);
+        if (project) {
+            playoutManager.ensureAndPreview(project, clip.id, pitch, 0.3, 0.8);
+        }
+    }, [clip.id, project]);
 
     // Delete selected notes
     const handleDeleteSelected = useCallback(() => {

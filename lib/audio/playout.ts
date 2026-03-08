@@ -8,6 +8,7 @@ import type { Clip, Project, Track, TrackEffect } from '@/types';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('Playout');
+import { audioEngine } from './engine';
 import { getAudioTake } from './recording-manager';
 import { createSynthFromPreset, waitForSynthReady, type SynthType } from './synth-presets';
 
@@ -601,6 +602,28 @@ class PlayoutManager {
         } catch {
             // Ignore preview errors (e.g. synth disposed mid-preview)
         }
+    }
+
+    // ========================================
+    // Editor preview helpers
+    // ========================================
+
+    /**
+     * Ensures audio engine + playout are initialized and the given project is
+     * scheduled, then plays a one-shot preview note.  Safe to call from any
+     * editor interaction without checking initialization state first.
+     */
+    async ensureAndPreview(project: Project, clipId: string, pitch: number, durationSeconds: number, velocity: number = 0.8): Promise<void> {
+        // Initialize audio context (no-op if already done)
+        await audioEngine.initialize();
+        await this.initialize();
+
+        // Schedule project if this clip has not been scheduled yet
+        if (!this.state.scheduledClips.has(clipId)) {
+            await this.scheduleProject(project);
+        }
+
+        this.previewNote(clipId, pitch, durationSeconds, velocity);
     }
 
     // ========================================

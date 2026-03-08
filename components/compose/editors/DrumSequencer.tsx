@@ -167,22 +167,22 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
         const existingNote = gridState.get(key);
 
         if (existingNote) {
-            // Remove note
             deleteNote(clip.id, existingNote.id);
         } else {
-            // Add note
             const sound = DRUM_SOUNDS[rowIndex];
             addNote(clip.id, {
                 pitch: sound.pitch,
                 startBeat: stepIndex / stepsPerBeat,
-                duration: 0.25, // 16th note
+                duration: 0.25,
                 velocity: 100,
             });
 
-            // Play preview through the track's effects chain
-            playoutManager.previewNote(clip.id, sound.pitch, 0.1);
+            // Ensure audio is ready, then preview (initializes audio on first tap)
+            if (project) {
+                playoutManager.ensureAndPreview(project, clip.id, sound.pitch, 0.1);
+            }
         }
-    }, [clip.id, gridState, deleteNote, addNote]);
+    }, [clip.id, project, gridState, deleteNote, addNote]);
 
     // Handle velocity change via drag
     const _handleVelocityDrag = useCallback((noteId: string, deltaY: number) => {
@@ -196,8 +196,10 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
     // Preview sound on row label click
     const previewSound = useCallback((rowIndex: number) => {
         const sound = DRUM_SOUNDS[rowIndex];
-        playoutManager.previewNote(clip.id, sound.pitch, 0.1);
-    }, [clip.id]);
+        if (project) {
+            playoutManager.ensureAndPreview(project, clip.id, sound.pitch, 0.1);
+        }
+    }, [clip.id, project]);
 
     // Apply preset pattern
     const applyPreset = useCallback((presetName: string) => {
