@@ -6,6 +6,7 @@
 'use client';
 
 import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
+import { Trash2 } from 'lucide-react';
 import { useProjectStore, useUIStore } from '@/lib/store';
 import { getAudioTake, audioEngine } from '@/lib/audio';
 import { AudioClip } from './AudioClip';
@@ -37,9 +38,11 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
     const updateClip = useProjectStore((s) => s.updateClip);
     const resizeClip = useProjectStore((s) => s.resizeClip);
     const duplicateClip = useProjectStore((s) => s.duplicateClip);
+    const deleteClip = useProjectStore((s) => s.deleteClip);
     const moveClipsByDelta = useProjectStore((s) => s.moveClipsByDelta);
     const selectedClipIds = useUIStore((s) => s.selectedClipIds);
     const selectClip = useUIStore((s) => s.selectClip);
+    const clearSelection = useUIStore((s) => s.clearSelection);
     const openEditor = useUIStore((s) => s.openEditor);
     const multiDragOffsetBars = useUIStore((s) => s.multiDragOffsetBars);
     const setMultiDragOffset = useUIStore((s) => s.setMultiDragOffset);
@@ -118,6 +121,14 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
         e.stopPropagation();
         openEditor(clip.id);
     }, [clip.id, openEditor]);
+
+    // Delete this clip
+    const handleDelete = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        deleteClip(clip.id);
+        clearSelection();
+    }, [clip.id, deleteClip, clearSelection]);
 
     // Determine drag mode based on pointer position
     const getDragMode = useCallback((e: React.PointerEvent): DragMode => {
@@ -424,7 +435,24 @@ export function DraggableClip({ clip, track, pixelsPerBeat, beatsPerBar }: Dragg
                         <span className="truncate text-2xs font-medium text-white/90">
                             {clip.name}
                         </span>
-                        {/* MIDI/Drum pattern preview would go here */}
+                    </div>
+                )}
+
+                {/* Action buttons — shown on hover/select, always on mobile when selected */}
+                {(isHovered || isSelected) && !dragMode && (
+                    <div
+                        className="absolute top-0.5 right-0.5 flex items-center gap-0.5 z-10"
+                        onPointerDown={(e) => e.stopPropagation()}
+                    >
+                        <button
+                            className="flex h-4 w-4 items-center justify-center rounded-sm bg-black/40 text-white/80 hover:bg-red-500/80 hover:text-white transition-colors"
+                            onClick={handleDelete}
+                            onTouchEnd={handleDelete}
+                            title="Delete clip"
+                            aria-label="Delete clip"
+                        >
+                            <Trash2 className="h-2.5 w-2.5" />
+                        </button>
                     </div>
                 )}
             </div>
