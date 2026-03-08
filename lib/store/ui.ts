@@ -61,6 +61,8 @@ interface UIActions {
     selectClips: (clipIds: string[]) => void;
     clearSelection: () => void;
     selectAll: () => void;
+    // Cleanup after clip deletion
+    removeDeletedClips: (deletedIds: string[]) => void;
 
     // Editor scope
     setEditorScope: (scope: EditorScope) => void;
@@ -246,6 +248,23 @@ export const useUIStore = create<UIStore>((set, get) => ({
         set({
             selectedClipIds: [],
             selectedTrackId: null,
+        });
+    },
+
+    removeDeletedClips: (deletedIds) => {
+        const idSet = new Set(deletedIds);
+        set((state) => {
+            const newSelectedClipIds = state.selectedClipIds.filter((id) => !idSet.has(id));
+            const newActiveEditorClipId = state.activeEditorClipId && idSet.has(state.activeEditorClipId)
+                ? null
+                : state.activeEditorClipId;
+            // If the editor was showing a deleted clip, close it
+            const editorOpen = newActiveEditorClipId !== null ? state.editorOpen : false;
+            return {
+                selectedClipIds: newSelectedClipIds,
+                activeEditorClipId: newActiveEditorClipId,
+                editorOpen,
+            };
         });
     },
 

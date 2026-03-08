@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import { temporal } from 'zundo';
 import { v4 as uuid } from 'uuid';
 import { TEMPLATES } from '@/lib/browser';
+import { useUIStore } from './ui';
 import type {
     Project,
     Track,
@@ -392,6 +393,7 @@ const projectStoreBase = (
     },
 
     deleteTrack: (trackId) => {
+        const clipsToDelete = get().project?.clips.filter((c) => c.trackId === trackId).map((c) => c.id) ?? [];
         set((state) => ({
             project: state.project
                 ? {
@@ -403,6 +405,7 @@ const projectStoreBase = (
                 : null,
             hasUnsavedChanges: true,
         }));
+        useUIStore.getState().removeDeletedClips(clipsToDelete);
     },
 
     reorderTracks: (trackIds) => {
@@ -484,6 +487,7 @@ const projectStoreBase = (
                 : null,
             hasUnsavedChanges: true,
         }));
+        useUIStore.getState().removeDeletedClips([clipId]);
     },
 
     deleteClips: (clipIds) => {
@@ -497,6 +501,7 @@ const projectStoreBase = (
                 : null,
             hasUnsavedChanges: true,
         }));
+        useUIStore.getState().removeDeletedClips(clipIds);
     },
 
     duplicateClip: (clipId, offsetBars = 0) => {
