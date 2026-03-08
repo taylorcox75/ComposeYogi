@@ -282,7 +282,7 @@ class PlayoutManager {
         return (beats / bpm) * 60;
     }
 
-    async scheduleClip(clip: Clip, track: Track, project: Project): Promise<void> {
+    async scheduleClip(clip: Clip, track: Track, project: Project, version?: number): Promise<void> {
         // Remove any existing schedule for this clip
         this.unscheduleClip(clip.id);
 
@@ -299,14 +299,41 @@ class PlayoutManager {
         const _beatsPerBar = project.timeSignature[0];
 
         if (clip.type === 'audio' && clip.activeTakeId) {
-            // Schedule audio clip from AudioTake
             await this.scheduleAudioClip(clip, track, chain.input, scheduled, project);
         } else if ((clip.type === 'midi' || clip.type === 'drum') && clip.notes) {
-            // Schedule MIDI/Drum clip
             await this.scheduleMidiClip(clip, track, chain.input, scheduled, project);
         }
 
+        // After the async work, verify this call is still the current version.
+        // A newer scheduleProject may have started — if so, discard and dispose
+        // the synth we just built to prevent it from leaking into the audio graph.
+        if (version !== undefined && this.scheduleVersion !== version) {
+            this.disposeSingleScheduled(scheduled);
+            return;
+        }
+
         this.state.scheduledClips.set(clip.id, scheduled);
+    }
+
+    /** Dispose a ScheduledClip that was never registered in scheduledClips (race-condition cleanup). */
+    private disposeSingleScheduled(scheduled: ScheduledClip): void {
+        scheduled.events.forEach((event) => {
+            try { event.dispose(); } catch { /* ignore */ }
+        });
+        if (scheduled.player) {
+            try {
+                if (scheduled.player instanceof Tone.Player) {
+                    scheduled.player.unsync();
+                    scheduled.player.stop();
+                } else if (scheduled.player instanceof Tone.PolySynth || scheduled.player instanceof Tone.Sampler) {
+                    (scheduled.player as Tone.PolySynth | Tone.Sampler).releaseAll();
+                } else if (scheduled.player instanceof Tone.MonoSynth || scheduled.player instanceof Tone.MembraneSynth) {
+                    (scheduled.player as Tone.MonoSynth).triggerRelease();
+                }
+            } catch { /* ignore */ } finally {
+                try { scheduled.player.dispose(); } catch { /* ignore */ }
+            }
+        }
     }
 
     /**
@@ -538,16 +565,15 @@ class PlayoutManager {
         // Clear existing schedules
         this.clearAllScheduled();
 
-        // Schedule all clips, checking version after each async op
+        // Schedule all clips, passing version so each async scheduleClip can self-abort
         for (const clip of project.clips) {
-            // Abort if a newer scheduleProject call has started
             if (this.scheduleVersion !== version) {
                 logger.debug('Aborting stale schedule', { version, current: this.scheduleVersion });
                 return;
             }
             const track = project.tracks.find((t) => t.id === clip.trackId);
             if (track && !track.muted) {
-                await this.scheduleClip(clip, track, project);
+                await this.scheduleClip(clip, track, project, version);
             }
         }
 
@@ -563,6 +589,27 @@ class PlayoutManager {
             this.updateTrackVolume(track.id, track.muted ? 0 : track.volume);
             this.updateTrackPan(track.id, track.pan);
         }
+
+        // Remove audio nodes for tracks that are no longer in the project
+        const currentTrackIds = new Set(project.tracks.map((t) => t.id));
+        for (const trackId of Array.from(this.trackEntries.keys())) {
+            if (!currentTrackIds.has(trackId)) {
+                this.disposeTrackChain(trackId);
+            }
+        }
+    }
+
+    private disposeTrackChain(trackId: string): void {
+        try { this.trackEntries.get(trackId)?.dispose(); } catch { /* ignore */ }
+        try { this.trackGains.get(trackId)?.dispose(); } catch { /* ignore */ }
+        try { this.trackPanners.get(trackId)?.dispose(); } catch { /* ignore */ }
+        this.trackEntries.delete(trackId);
+        this.trackGains.delete(trackId);
+        this.trackPanners.delete(trackId);
+        // Effect chain will be cleaned up by updateTrackEffects on next project sync
+        const effects = this.trackEffects.get(trackId) || [];
+        effects.forEach((e) => { try { e.dispose(); } catch { /* ignore */ } });
+        this.trackEffects.delete(trackId);
     }
 
     // ========================================
