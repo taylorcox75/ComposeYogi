@@ -204,7 +204,7 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
         updateNote(clip.id, noteId, { velocity: newVelocity });
     }, [clip.id, clip.notes, updateNote]);
 
-    // Preview sound on row label click
+    // Preview sound on row label tap — use onPointerDown for instant audio feedback
     const previewSound = useCallback((rowIndex: number) => {
         const sound = DRUM_SOUNDS[rowIndex];
         if (project) {
@@ -265,6 +265,12 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
     // Row height constant for alignment
     const ROW_HEIGHT = 28;
 
+    // Refs for scroll sync (avoid document.getElementById anti-pattern)
+    const rowLabelsRef = useRef<HTMLDivElement>(null);
+    const beatNumbersRef = useRef<HTMLDivElement>(null);
+    // Guard to prevent infinite scroll-sync loop
+    const isSyncingScrollRef = useRef(false);
+
     return (
         <div
             className="flex h-full flex-col outline-none"
@@ -318,12 +324,13 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
                 <div className="flex flex-1 overflow-hidden">
                     {/* Row labels - synced vertical scroll with grid */}
                     <div
+                        ref={rowLabelsRef}
                         className="w-16 flex-shrink-0 border-r border-border bg-surface overflow-y-auto overflow-x-hidden scrollbar-hide"
                         onScroll={(e) => {
-                            // Sync scroll with grid
-                            if (gridRef.current) {
-                                gridRef.current.scrollTop = e.currentTarget.scrollTop;
-                            }
+                            if (isSyncingScrollRef.current) return;
+                            isSyncingScrollRef.current = true;
+                            if (gridRef.current) gridRef.current.scrollTop = e.currentTarget.scrollTop;
+                            isSyncingScrollRef.current = false;
                         }}
                     >
                         <div className="flex flex-col">
@@ -332,8 +339,8 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
                                     <TooltipTrigger asChild>
                                         <button
                                             className="flex items-center gap-1 px-1.5 text-2xs text-muted-foreground hover:bg-accent/10 hover:text-foreground transition-colors border-b border-border flex-shrink-0"
-                                            style={{ height: ROW_HEIGHT }}
-                                            onClick={() => previewSound(rowIndex)}
+                                            style={{ height: ROW_HEIGHT, touchAction: 'manipulation' }}
+                                            onPointerDown={(e) => { e.preventDefault(); previewSound(rowIndex); }}
                                         >
                                             <div className={`h-2 w-2 rounded-full ${sound.color}`} />
                                             <span className="truncate">{sound.shortName}</span>
@@ -341,7 +348,7 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
                                     </TooltipTrigger>
                                     <TooltipContent side="right">
                                         <p>{sound.name}</p>
-                                        <p className="text-2xs text-muted-foreground">Click to preview</p>
+                                        <p className="text-2xs text-muted-foreground">Tap to preview</p>
                                     </TooltipContent>
                                 </Tooltip>
                             ))}
@@ -353,16 +360,13 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
                         ref={gridRef}
                         className="flex-1 overflow-auto"
                         onScroll={(e) => {
+                            if (isSyncingScrollRef.current) return;
+                            isSyncingScrollRef.current = true;
                             // Sync vertical scroll with row labels
-                            const labelContainer = e.currentTarget.previousElementSibling;
-                            if (labelContainer) {
-                                labelContainer.scrollTop = e.currentTarget.scrollTop;
-                            }
+                            if (rowLabelsRef.current) rowLabelsRef.current.scrollTop = e.currentTarget.scrollTop;
                             // Sync horizontal scroll with beat numbers
-                            const beatRow = document.getElementById('drum-beat-numbers');
-                            if (beatRow) {
-                                beatRow.scrollLeft = e.currentTarget.scrollLeft;
-                            }
+                            if (beatNumbersRef.current) beatNumbersRef.current.scrollLeft = e.currentTarget.scrollLeft;
+                            isSyncingScrollRef.current = false;
                         }}
                     >
                         <div style={{ minWidth: steps * 28 }}>
@@ -433,7 +437,7 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
                     </div>
                     {/* Beat numbers - horizontal scroll synced with grid */}
                     <div
-                        id="drum-beat-numbers"
+                        ref={beatNumbersRef}
                         className="flex-1 overflow-x-auto overflow-y-hidden scrollbar-hide"
                     >
                         <div

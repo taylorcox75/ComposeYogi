@@ -62,6 +62,25 @@ export function PianoRoll({ clip }: PianoRollProps) {
         setSelectedNoteIds(new Set());
     }, [clip.id]);
 
+    // Auto-scroll the grid to show the existing notes (or middle C if none)
+    // when the clip first opens in the editor.
+    useEffect(() => {
+        if (!gridRef.current) return;
+        let targetPitch = 60; // C4 default
+        if (clip.notes && clip.notes.length > 0) {
+            const sorted = [...clip.notes].sort((a, b) => a.pitch - b.pitch);
+            targetPitch = sorted[Math.floor(sorted.length / 2)].pitch;
+        }
+        const row = pitchToRow(targetPitch);
+        const scrollTop = row * NOTE_HEIGHT - gridRef.current.clientHeight / 2;
+        gridRef.current.scrollTop = Math.max(0, scrollTop);
+        // Also sync piano key scroll
+        if (keysRef.current) {
+            keysRef.current.scrollTop = Math.max(0, scrollTop);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clip.id]);
+
     // Resize state
     const [resizingNote, setResizingNote] = useState<{ id: string; startDuration: number; startX: number } | null>(null);
 
@@ -129,9 +148,13 @@ export function PianoRoll({ clip }: PianoRollProps) {
         return Math.round(value / snapBeats) * snapBeats;
     }, [snapBeats]);
 
-    // Handle click on grid - toggle notes (like Drum Sequencer)
-    const handleGridClick = useCallback((e: React.MouseEvent) => {
+    // Handle tap on grid - toggle notes (like Drum Sequencer)
+    // Uses onPointerDown for instant response on touch (no 300ms click delay).
+    const handleGridClick = useCallback((e: React.PointerEvent) => {
         if (!gridRef.current || isDragging) return;
+        // Only handle primary pointer (finger 0 / left mouse button)
+        if (e.button !== 0 && e.pointerType !== 'touch') return;
+        e.preventDefault();
 
         const rect = gridRef.current.getBoundingClientRect();
         const scrollLeft = gridRef.current.scrollLeft;
@@ -194,6 +217,11 @@ export function PianoRoll({ clip }: PianoRollProps) {
             playoutManager.ensureAndPreview(project, clip.id, pitch, 0.3, 0.8);
         }
     }, [clip.id, project]);
+
+    const handleKeyPointerDown = useCallback((e: React.PointerEvent, pitch: number) => {
+        e.preventDefault();
+        handleKeyClick(pitch);
+    }, [handleKeyClick]);
 
     // Delete selected notes
     const handleDeleteSelected = useCallback(() => {
@@ -369,8 +397,8 @@ export function PianoRoll({ clip }: PianoRollProps) {
                                     ${isInScale(pitch) ? '' : 'opacity-40'}
                                     hover:brightness-110 active:brightness-90
                                 `}
-                                style={{ height: NOTE_HEIGHT }}
-                                onClick={() => handleKeyClick(pitch)}
+                                style={{ height: NOTE_HEIGHT, touchAction: 'manipulation' }}
+                                onPointerDown={(e) => handleKeyPointerDown(e, pitch)}
                             >
                                 {noteName === 'C' ? `C${octave}` : ''}
                             </button>
@@ -382,7 +410,7 @@ export function PianoRoll({ clip }: PianoRollProps) {
                 <div
                     ref={gridRef}
                     className="flex-1 overflow-auto bg-background relative"
-                    onClick={handleGridClick}
+                    onPointerDown={handleGridClick}
                     onScroll={(e) => {
                         // Sync piano keys scroll with grid vertical scroll
                         if (keysRef.current) {
