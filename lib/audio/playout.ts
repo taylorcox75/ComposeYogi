@@ -103,8 +103,8 @@ class PlayoutManager {
 
         if (!entry || !gain || !panner) {
             entry = new Tone.Gain(1);
-            panner = new Tone.Panner(track.pan || 0);
-            gain = new Tone.Gain(track.volume || 0.8);
+            panner = new Tone.Panner(track.pan ?? 0);
+            gain = new Tone.Gain(track.volume ?? 0.8);
 
             // Default Chain: entry -> gain -> panner -> master
             entry.connect(gain);
@@ -574,6 +574,32 @@ class PlayoutManager {
         for (const track of tracks) {
             const _shouldPlay = !hasSoloedTrack || track.solo;
             this.updateTrackMute(track.id, track.muted || (hasSoloedTrack && !track.solo));
+        }
+    }
+
+    // ========================================
+    // Preview (plays through the effects chain)
+    // ========================================
+
+    /**
+     * Trigger a one-shot note preview through the clip's scheduled synth.
+     * This routes through the track's effects chain (reverb, delay, etc.)
+     * unlike a standalone synth wired directly to Destination.
+     */
+    previewNote(clipId: string, pitch: number, durationSeconds: number, velocity: number = 0.8): void {
+        const scheduled = this.state.scheduledClips.get(clipId);
+        if (!scheduled?.player || scheduled.player instanceof Tone.Player) return;
+
+        try {
+            const synth = scheduled.player as Tone.PolySynth | Tone.MonoSynth | Tone.MembraneSynth | Tone.Sampler;
+            synth.triggerAttackRelease(
+                Tone.Frequency(pitch, 'midi').toFrequency(),
+                durationSeconds,
+                Tone.now(),
+                velocity,
+            );
+        } catch {
+            // Ignore preview errors (e.g. synth disposed mid-preview)
         }
     }
 

@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { useProjectStore, useUIStore, usePlaybackStore } from '@/lib/store';
 import { playbackRefs } from '@/lib/store/playback';
+import { useIsMobile } from '@/hooks';
 import { Button } from '@/components/ui';
 import {
     Tooltip,
@@ -537,6 +538,7 @@ function getDemoNotesForInstrument(instrumentId: string): Array<{ pitch: number;
 }
 
 export function TrackList() {
+    const isMobile = useIsMobile();
     const { resolvedTheme } = useTheme();
     const project = useProjectStore((s) => s.project);
     const addTrack = useProjectStore((s) => s.addTrack);
@@ -546,8 +548,8 @@ export function TrackList() {
     const selectTrack = useUIStore((s) => s.selectTrack);
     const selectedTrackId = useUIStore((s) => s.selectedTrackId);
     const zoom = useUIStore((s) => s.zoom);
-    const zoomIn = useUIStore((s) => s.zoomIn);
-    const zoomOut = useUIStore((s) => s.zoomOut);
+    const _zoomIn = useUIStore((s) => s.zoomIn);
+    const _zoomOut = useUIStore((s) => s.zoomOut);
     const setZoom = useUIStore((s) => s.setZoom);
     const scrollX = useUIStore((s) => s.scrollX);
     const setScrollX = useUIStore((s) => s.setScrollX);
@@ -716,25 +718,61 @@ export function TrackList() {
         return () => window.removeEventListener('resize', handleResize);
     }, [drawRuler]);
 
-    // Handle ruler click to seek
+    // Handle ruler seek (click or drag)
     const seekTo = usePlaybackStore((s) => s.seekTo);
-    const handleRulerClick = useCallback((e: React.MouseEvent) => {
+    const isRulerDraggingRef = useRef(false);
+
+    const seekFromClientX = useCallback((clientX: number) => {
         if (!project || !rulerCanvasRef.current) return;
-
         const rect = rulerCanvasRef.current.getBoundingClientRect();
-        // e.clientX - rect.left gives us the position within the visible canvas
-        // Since the canvas spans the full content width and scrolls with the container,
-        // we don't need to add scrollLeft - the click position is already correct
-        const x = e.clientX - rect.left;
+        const x = clientX - rect.left;
         const beat = x / pixelsPerBeat;
-        const secondsPerBeat = 60 / project.bpm;
-        const time = Math.max(0, beat * secondsPerBeat);
-
-        // Update store and ref (seekTo increments positionVersion to trigger playhead update)
+        const time = Math.max(0, beat * (60 / project.bpm));
         seekTo(time);
-        // Seek the audio engine so playback starts from this position
         audioEngine.seek(time);
     }, [project, pixelsPerBeat, seekTo]);
+
+    // Mouse drag on ruler
+    const handleRulerMouseDown = useCallback((e: React.MouseEvent) => {
+        isRulerDraggingRef.current = true;
+        seekFromClientX(e.clientX);
+
+        const onMove = (ev: MouseEvent) => {
+            if (isRulerDraggingRef.current) seekFromClientX(ev.clientX);
+        };
+        const onUp = () => {
+            isRulerDraggingRef.current = false;
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, [seekFromClientX]);
+
+    // Touch drag on ruler (non-passive so we can preventDefault)
+    const rulerTouchMoveHandler = useCallback((e: TouchEvent) => {
+        if (!isRulerDraggingRef.current) return;
+        e.preventDefault();
+        seekFromClientX(e.touches[0].clientX);
+    }, [seekFromClientX]);
+
+    const handleRulerTouchStart = useCallback((e: React.TouchEvent) => {
+        isRulerDraggingRef.current = true;
+        seekFromClientX(e.touches[0].clientX);
+    }, [seekFromClientX]);
+
+    const handleRulerTouchEnd = useCallback(() => {
+        isRulerDraggingRef.current = false;
+    }, []);
+
+    // Attach non-passive touchmove listener for ruler drag
+    useEffect(() => {
+        const canvas = rulerCanvasRef.current;
+        if (!canvas) return;
+        canvas.addEventListener('touchmove', rulerTouchMoveHandler, { passive: false });
+        return () => canvas.removeEventListener('touchmove', rulerTouchMoveHandler);
+    }, [rulerTouchMoveHandler]);
+
 
     // Apply scrollX state to container
     useEffect(() => {
@@ -852,6 +890,7 @@ export function TrackList() {
                                     key={track.id}
                                     track={track}
                                     isSelected={selectedTrackId === track.id}
+                                    isMobile={isMobile}
                                     onSelect={() => selectTrack(track.id)}
                                     onMuteToggle={() => handleMuteToggle(track)}
                                     onSoloToggle={() => handleSoloToggle(track)}
@@ -895,9 +934,11 @@ export function TrackList() {
                     >
                         <canvas
                             ref={rulerCanvasRef}
-                            className="h-full cursor-pointer"
+                            className="h-full cursor-pointer select-none touch-none"
                             style={{ width: contentWidth, height: RULER_HEIGHT }}
-                            onClick={handleRulerClick}
+                            onMouseDown={handleRulerMouseDown}
+                            onTouchStart={handleRulerTouchStart}
+                            onTouchEnd={handleRulerTouchEnd}
                         />
                         {/* Loop braces overlay */}
                         <LoopBraces
@@ -954,6 +995,7 @@ export function TrackList() {
 interface TrackHeaderProps {
     track: Track;
     isSelected: boolean;
+    isMobile: boolean;
     onSelect: () => void;
     onMuteToggle: () => void;
     onSoloToggle: () => void;
@@ -965,6 +1007,7 @@ interface TrackHeaderProps {
 function _TrackHeader({
     track,
     isSelected,
+    isMobile: _isMobile,
     onSelect,
     onMuteToggle,
     onSoloToggle,
@@ -1161,7 +1204,7 @@ function SortableTrackHeader(props: TrackHeaderProps) {
                         <Headphones className="h-3.5 w-3.5" />
                     </Button>
 
-                    {props.track.type === 'audio' && (
+                    {props.track.type === 'audio' && !props.isMobile && (
                         <Button
                             variant="ghost"
                             size="icon"
@@ -1188,8 +1231,8 @@ function SortableTrackHeader(props: TrackHeaderProps) {
                     />
                 </div>
 
-                {/* Active Effects Indicators */}
-                {props.track.effects && props.track.effects.filter((fx) => fx.active).length > 0 && (
+                {/* Active Effects Indicators — hidden on mobile to save space */}
+                {!props.isMobile && props.track.effects && props.track.effects.filter((fx) => fx.active).length > 0 && (
                     <TooltipProvider delayDuration={200}>
                         <div className="flex items-center gap-1 overflow-hidden">
                             {props.track.effects.filter((fx) => fx.active).slice(0, 3).map((fx) => (
@@ -1248,6 +1291,7 @@ function TrackLane({ track, index, pixelsPerBeat, beatsPerBar, isSelected, onSel
     const selectClip = useUIStore((s) => s.selectClip);
     const openEditor = useUIStore((s) => s.openEditor);
     const [isDragOver, setIsDragOver] = useState(false);
+    const laneRef = useRef<HTMLDivElement>(null);
 
     const handleLaneClick = useCallback((e: React.MouseEvent) => {
         if (e.target === e.currentTarget) {
@@ -1290,17 +1334,10 @@ function TrackLane({ track, index, pixelsPerBeat, beatsPerBar, isSelected, onSel
         setIsDragOver(false);
     }, []);
 
-    // Handle drop from browser panel
-    const handleDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragOver(false);
-
-        try {
-            const data = JSON.parse(e.dataTransfer.getData('application/json'));
-
-            // Calculate bar position from drop location
-            const rect = e.currentTarget.getBoundingClientRect();
-            const x = e.clientX - rect.left;
+    // Core drop processing (shared between HTML5 drag-drop and touch drag)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleDropPayload = useCallback((data: any, clientX: number, rect: DOMRect) => {
+            const x = clientX - rect.left;
             const beat = x / pixelsPerBeat;
             const bar = Math.floor(beat / beatsPerBar);
 
@@ -1404,10 +1441,31 @@ function TrackLane({ track, index, pixelsPerBeat, beatsPerBar, isSelected, onSel
                         console.error('[TrackLane] Failed to load user sample:', err);
                     });
             }
+    }, [track.id, track.color, pixelsPerBeat, beatsPerBar, addClip, updateClip, addNote, selectClip, openEditor, updateTrack, addTrackEffect]);
+
+    // Handle drop from browser panel (HTML5 drag-drop)
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('application/json'));
+            handleDropPayload(data, e.clientX, e.currentTarget.getBoundingClientRect());
         } catch (err) {
             console.error('[TrackLane] Failed to parse drop data:', err);
         }
-    }, [track.id, track.color, pixelsPerBeat, beatsPerBar, addClip, updateClip, addNote, selectClip, openEditor, updateTrack, addTrackEffect]);
+    }, [handleDropPayload]);
+
+    // Handle touch drop from BrowserPanel (mobile drag-and-drop)
+    useEffect(() => {
+        const lane = laneRef.current;
+        if (!lane) return;
+        const handler = (e: Event) => {
+            const { data, clientX } = (e as CustomEvent<{ data: object; clientX: number }>).detail;
+            handleDropPayload(data, clientX, lane.getBoundingClientRect());
+        };
+        lane.addEventListener('browser-touch-drop', handler);
+        return () => lane.removeEventListener('browser-touch-drop', handler);
+    }, [handleDropPayload]);
 
     if (!project) return null;
 
@@ -1415,6 +1473,8 @@ function TrackLane({ track, index, pixelsPerBeat, beatsPerBar, isSelected, onSel
 
     return (
         <div
+            ref={laneRef}
+            data-track-id={track.id}
             className={`absolute left-0 right-0 border-b border-border/50 transition-colors ${isSelected ? 'bg-accent/5' : ''
                 } ${track.muted ? 'opacity-50' : ''} ${isDragOver ? 'bg-accent/20 ring-1 ring-accent ring-inset' : ''
                 }`}

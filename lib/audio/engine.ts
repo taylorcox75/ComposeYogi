@@ -48,6 +48,9 @@ class AudioEngine {
         if (this.isInitialized) return;
 
         // Start audio context on user interaction
+        // Note: iOS Safari's Web Audio API bypasses the hardware mute switch automatically.
+        // Using HTMLAudioElement.play() before Tone.start() would consume the user gesture
+        // and prevent the AudioContext from resuming (causing "Failed to start audio device").
         await Tone.start();
 
         // Configure default settings

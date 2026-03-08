@@ -24,7 +24,6 @@ import {
     Sun,
     Keyboard,
     ZoomIn,
-    ZoomOut,
     Minus,
 } from 'lucide-react';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
@@ -70,6 +69,8 @@ interface TransportProps {
     saveStatusText?: string;
 }
 
+const EMPTY_TRACKS: never[] = [];
+
 export function Transport({
     onPlayPause,
     onStop,
@@ -81,7 +82,7 @@ export function Transport({
 }: TransportProps) {
     const project = useProjectStore((s) => s.project);
     const setBpm = useProjectStore((s) => s.setBpm);
-    const tracks = useProjectStore((s) => s.project?.tracks || []);
+    const tracks = useProjectStore((s) => s.project?.tracks ?? EMPTY_TRACKS);
     const {
         isPlaying,
         isRecording,
@@ -135,20 +136,8 @@ export function Transport({
     // Find armed track
     const armedTrack = tracks.find(t => t.armed);
 
-    // Initialize recording manager when audio is ready (don't block on errors)
-    useEffect(() => {
-        if (isAudioReady && !isRecorderReady && !recorderError) {
-            recordingManager.initialize()
-                .then(() => {
-                    setIsRecorderReady(true);
-                    setRecorderError(null);
-                })
-                .catch((err) => {
-                    // Don't set error yet - user hasn't tried to record
-                    console.warn('[Transport] Recorder not ready (mic permission needed):', err.message);
-                });
-        }
-    }, [isAudioReady, isRecorderReady, recorderError]);
+    // Recorder is initialized on-demand in handleRecord (not eagerly on mount)
+    // to avoid triggering microphone permission before the user requests recording.
 
     // Sync local BPM with project
     useEffect(() => {
@@ -225,9 +214,14 @@ export function Transport({
     if (!project) return null;
 
     return (
-        <header className="flex h-transport items-center border-b border-border bg-card">
+        // overflow-x-auto lets the bar scroll on narrow screens (mobile) while showing
+        // everything on wide screens (desktop) — no separate mobile branch needed.
+        <header className="flex h-transport items-center border-b border-border bg-card overflow-x-auto">
+            {/* w-full min-w-max: fills header on desktop, wider-than-screen on mobile → scroll */}
+            <div className="flex items-center w-full min-w-max">
+
             {/* Left: Logo + Project name + Save status */}
-            <div className="flex items-center gap-3 px-4">
+            <div className="flex items-center gap-3 px-4 shrink-0">
                 <Link href="/" className="flex items-center gap-2 text-accent hover:opacity-80 transition-opacity">
                     <MusicWave barCount={4} color="accent" className="h-5" />
                     <span className="text-sm font-semibold tracking-tight">ComposeYogi</span>
@@ -278,7 +272,7 @@ export function Transport({
             </div>
 
             {/* Center: Transport controls */}
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex items-center">
                 <div className="flex items-center bg-background/50 rounded-lg px-1 py-1 gap-0.5">
                     {/* Navigation controls */}
                     <div className="flex items-center">
@@ -652,8 +646,8 @@ export function Transport({
                 </div>
             </div>
 
-            {/* Right: Settings */}
-            <div className="flex items-center gap-2 px-4">
+            {/* Right: Settings — ml-auto pushes it to the far right on desktop */}
+            <div className="flex items-center gap-2 px-4 ml-auto shrink-0">
                 {/* Recording indicator */}
                 {armedTrack && (
                     <div className="flex items-center gap-1.5 text-xs text-destructive">
@@ -711,6 +705,7 @@ export function Transport({
                     onClose={() => setShowImportModal(false)}
                 />
             </div>
+            </div>{/* end w-full min-w-max row */}
         </header>
     );
 }
@@ -726,7 +721,7 @@ function ThemeToggleButton() {
     if (!mounted) {
         return (
             <Button variant="ghost" size="icon-sm" disabled>
-                <Sun className="h-4 w-4" />
+                <span className="h-4 w-4 block" />
             </Button>
         );
     }

@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SCALES, NOTES } from '@/lib/utils';
+import { useIsMobile } from '@/hooks';
 import type { MusicalKey, MusicalScale, TrackType, TrackColor } from '@/types';
 
 const TRACK_COLOR_OPTIONS: { value: TrackColor; label: string }[] = [
@@ -49,12 +50,13 @@ export function Inspector() {
     const selectedTrackId = useUIStore((s) => s.selectedTrackId);
     const selectedClipId = useUIStore((s) => s.selectedClipId);
     const toggleInspector = useUIStore((s) => s.toggleInspector);
+    const isMobile = useIsMobile();
 
     const selectedTrack = project?.tracks.find((t) => t.id === selectedTrackId);
     const selectedClip = project?.clips.find((c) => c.id === selectedClipId);
 
     return (
-        <aside className="flex w-inspector flex-col border-l border-border bg-card">
+        <aside className={`flex flex-col border-border bg-card ${isMobile ? 'w-full h-full border-t' : 'w-inspector border-l'}`}>
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
                 <h2 className="text-sm font-semibold">Inspector</h2>

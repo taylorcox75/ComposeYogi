@@ -43,10 +43,14 @@ import {
     getUserSamples,
     removeUserSample,
     createSamplePreviewUrl,
+    loadSampleAsAudioTake,
+    loadUserSampleAsAudioTake,
+    audioEngine,
     SUPPORTED_EXTENSIONS,
 } from '@/lib/audio';
 import type { UserSample } from '@/types';
 import { createLogger } from '@/lib/logger';
+import { useIsMobile } from '@/hooks';
 import { toast } from 'sonner';
 
 const log = createLogger('BrowserPanel');
@@ -94,11 +98,21 @@ export function BrowserPanel() {
     const [previewingId, setPreviewingId] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+    const touchGhostRef = useRef<HTMLDivElement | null>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const touchDragDataRef = useRef<{ data: any; label: string } | null>(null);
+
+    const isMobile = useIsMobile();
 
     const toggleBrowser = useUIStore((s) => s.toggleBrowser);
+    const selectedTrackId = useUIStore((s) => s.selectedTrackId);
+    const selectClip = useUIStore((s) => s.selectClip);
     const createProject = useProjectStore((s) => s.createProject);
     const addTrack = useProjectStore((s) => s.addTrack);
     const updateTrack = useProjectStore((s) => s.updateTrack);
+    const addClip = useProjectStore((s) => s.addClip);
+    const updateClip = useProjectStore((s) => s.updateClip);
+    const addTrackEffect = useProjectStore((s) => s.addTrackEffect);
 
     const loadUserSamples = useCallback(async () => {
         try {
@@ -170,6 +184,87 @@ export function BrowserPanel() {
         }));
         e.dataTransfer.effectAllowed = 'copy';
     }, []);
+
+    // ========================================
+    // Touch Drag Handlers (iOS / mobile)
+    // HTML5 drag events don't fire from touch, so we use touch events to
+    // simulate drag-and-drop: ghost element follows finger, on lift we
+    // dispatch a custom 'browser-touch-drop' event on the track lane below.
+    // ========================================
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleTouchDragStart = useCallback((data: any, label: string, e: React.TouchEvent) => {
+        // Don't hijack taps on the + button or delete button
+        if ((e.target as HTMLElement).closest('button')) return;
+        touchDragDataRef.current = { data, label };
+    }, []);
+
+    // Global non-passive touchmove: update ghost position, prevent scroll
+    // Registered via useEffect below (React passive listeners can't call preventDefault)
+    const touchMoveHandler = useCallback((e: TouchEvent) => {
+        if (!touchDragDataRef.current) return;
+        e.preventDefault();
+        const touch = e.touches[0];
+        if (!touchGhostRef.current) {
+            const ghost = document.createElement('div');
+            ghost.style.cssText = [
+                'position:fixed',
+                'z-index:9999',
+                'pointer-events:none',
+                'background:hsl(var(--accent))',
+                'color:hsl(var(--accent-foreground))',
+                'padding:4px 10px',
+                'border-radius:6px',
+                'font-size:12px',
+                'font-weight:500',
+                'opacity:0.9',
+                'box-shadow:0 2px 8px rgba(0,0,0,0.4)',
+                'white-space:nowrap',
+            ].join(';');
+            ghost.textContent = touchDragDataRef.current.label;
+            document.body.appendChild(ghost);
+            touchGhostRef.current = ghost;
+        }
+        touchGhostRef.current.style.left = `${touch.clientX + 12}px`;
+        touchGhostRef.current.style.top = `${touch.clientY - 24}px`;
+    }, []);
+
+    // Global touchend: find drop target, dispatch event, clean up
+    const touchEndHandler = useCallback((e: TouchEvent) => {
+        if (!touchDragDataRef.current) return;
+        const touch = e.changedTouches[0];
+
+        if (touchGhostRef.current) {
+            document.body.removeChild(touchGhostRef.current);
+            touchGhostRef.current = null;
+        }
+
+        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (el) {
+            let target: Element | null = el;
+            while (target && !target.getAttribute('data-track-id')) {
+                target = target.parentElement;
+            }
+            if (target) {
+                target.dispatchEvent(new CustomEvent('browser-touch-drop', {
+                    bubbles: false,
+                    detail: { data: touchDragDataRef.current.data, clientX: touch.clientX },
+                }));
+            }
+        }
+
+        touchDragDataRef.current = null;
+    }, []);
+
+    // Register global non-passive touch listeners
+    useEffect(() => {
+        document.addEventListener('touchmove', touchMoveHandler, { passive: false });
+        document.addEventListener('touchend', touchEndHandler);
+        return () => {
+            document.removeEventListener('touchmove', touchMoveHandler);
+            document.removeEventListener('touchend', touchEndHandler);
+        };
+    }, [touchMoveHandler, touchEndHandler]);
 
     // ========================================
     // User Sample Handlers
@@ -279,6 +374,62 @@ export function BrowserPanel() {
             log.error('Delete failed', error);
         }
     }, [loadUserSamples]);
+
+    // ========================================
+    // Mobile Tap-to-Add Handlers
+    // (On desktop items are added via drag-and-drop; on touch that doesn't work)
+    // ========================================
+
+    const handleSampleTapAdd = useCallback((sample: SampleItem) => {
+        if (!selectedTrackId) {
+            toast.error('Select a track first, then tap + to add a sample');
+            return;
+        }
+        const clip = addClip(selectedTrackId, 'audio', 0, 1);
+        loadSampleAsAudioTake(sample.url, sample.name, clip.id)
+            .then((take) => {
+                const lengthBars = Math.max(0.25, audioEngine.secondsToBar(take.duration));
+                updateClip(clip.id, {
+                    name: sample.name,
+                    audioTakeIds: [take.id],
+                    activeTakeId: take.id,
+                    lengthBars,
+                });
+                selectClip(clip.id);
+            })
+            .catch(() => toast.error(`Failed to load "${sample.name}"`));
+        toast.success(`Added "${sample.name}" to track`);
+    }, [selectedTrackId, addClip, updateClip, selectClip]);
+
+    const handleUserSampleTapAdd = useCallback((sample: UserSample) => {
+        if (!selectedTrackId) {
+            toast.error('Select a track first, then tap + to add a sample');
+            return;
+        }
+        const clip = addClip(selectedTrackId, 'audio', 0, 1);
+        loadUserSampleAsAudioTake(sample.id, clip.id)
+            .then((take) => {
+                const lengthBars = Math.max(0.25, audioEngine.secondsToBar(take.duration));
+                updateClip(clip.id, {
+                    name: sample.name,
+                    audioTakeIds: [take.id],
+                    activeTakeId: take.id,
+                    lengthBars,
+                });
+                selectClip(clip.id);
+            })
+            .catch(() => toast.error(`Failed to load "${sample.name}"`));
+        toast.success(`Added "${sample.name}" to track`);
+    }, [selectedTrackId, addClip, updateClip, selectClip]);
+
+    const handleFXTapAdd = useCallback((fx: FXPreset) => {
+        if (!selectedTrackId) {
+            toast.error('Select a track first, then tap + to add an effect');
+            return;
+        }
+        addTrackEffect(selectedTrackId, fx.category, fx.id);
+        toast.success(`Added ${fx.name} to track`);
+    }, [selectedTrackId, addTrackEffect]);
 
     // ========================================
     // Template Click Handler
@@ -396,9 +547,10 @@ export function BrowserPanel() {
                                         <Tooltip key={instrument.id}>
                                             <TooltipTrigger asChild>
                                                 <div
-                                                    draggable
+                                                    draggable={!isMobile}
                                                     onDragStart={(e) => handleInstrumentDrag(e, instrument)}
                                                     onDoubleClick={() => handleInstrumentDoubleClick(instrument)}
+                                                    onTouchStart={(e) => handleTouchDragStart({ type: 'instrument', data: instrument }, instrument.name, e)}
                                                     className="flex items-center gap-2 rounded px-2 py-1.5 text-sm cursor-grab active:cursor-grabbing hover:bg-surface-elevated group relative"
                                                 >
                                                     <GripVertical className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-50" />
@@ -415,7 +567,7 @@ export function BrowserPanel() {
                                                             e.stopPropagation();
                                                             handleInstrumentDoubleClick(instrument);
                                                         }}
-                                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-surface-active rounded transition-all"
+                                                        className={`p-1 hover:bg-surface-active rounded transition-all ${isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
                                                         aria-label="Add Track"
                                                     >
                                                         <PlusCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
@@ -493,9 +645,13 @@ export function BrowserPanel() {
                                     filteredUserSamples.map((sample) => (
                                         <div
                                             key={sample.id}
-                                            draggable
+                                            draggable={!isMobile}
                                             onClick={() => handleUserSampleClick(sample)}
                                             onDragStart={(e) => handleUserSampleDrag(e, sample)}
+                                            onTouchStart={(e) => handleTouchDragStart({
+                                                type: 'user-sample',
+                                                data: { id: sample.id, name: sample.name, duration: sample.duration, sampleRate: sample.sampleRate },
+                                            }, sample.name, e)}
                                             className={`flex items-center gap-2 rounded px-2 py-1.5 text-sm cursor-grab active:cursor-grabbing hover:bg-surface-elevated group ${previewingId === sample.id ? 'bg-accent/10' : ''
                                                 }`}
                                         >
@@ -511,9 +667,18 @@ export function BrowserPanel() {
                                             <span className="text-[10px] text-muted-foreground">
                                                 {formatDuration(sample.duration)}
                                             </span>
+                                            {isMobile && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleUserSampleTapAdd(sample); }}
+                                                    className="p-1 hover:bg-surface-active rounded"
+                                                    aria-label="Add to track"
+                                                >
+                                                    <PlusCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={(e) => handleDeleteUserSample(e, sample)}
-                                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-destructive/20 rounded transition-all"
+                                                className={`p-1 hover:bg-destructive/20 rounded transition-all ${isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
                                                 aria-label="Delete sample"
                                             >
                                                 <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
@@ -558,9 +723,10 @@ export function BrowserPanel() {
                                     {(searchQuery ? filteredSamples : folder.samples).map((sample) => (
                                         <div
                                             key={sample.id}
-                                            draggable
+                                            draggable={!isMobile}
                                             onClick={() => handleSampleClick(sample)}
                                             onDragStart={(e) => handleSampleDrag(e, sample, folder)}
+                                            onTouchStart={(e) => handleTouchDragStart({ type: 'sample', data: { ...sample, folderId: folder.id } }, sample.name, e)}
                                             className="flex items-center gap-2 rounded px-2 py-1.5 text-sm cursor-grab active:cursor-grabbing hover:bg-surface-elevated group"
                                         >
                                             <GripVertical className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
@@ -572,6 +738,15 @@ export function BrowserPanel() {
                                                 <span className="text-[10px] text-muted-foreground">
                                                     {sample.bpm}
                                                 </span>
+                                            )}
+                                            {isMobile && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleSampleTapAdd(sample); }}
+                                                    className="p-1 hover:bg-surface-active rounded"
+                                                    aria-label="Add to track"
+                                                >
+                                                    <PlusCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                                                </button>
                                             )}
                                         </div>
                                     ))}
@@ -623,8 +798,9 @@ export function BrowserPanel() {
                                     {categoryFX.map((fx) => (
                                         <div
                                             key={fx.id}
-                                            draggable
+                                            draggable={!isMobile}
                                             onDragStart={(e) => handleFXDrag(e, fx)}
+                                            onTouchStart={(e) => handleTouchDragStart({ type: 'fx', data: fx }, fx.name, e)}
                                             className="flex items-center gap-2 rounded px-2 py-1.5 text-sm cursor-grab active:cursor-grabbing hover:bg-surface-elevated group"
                                             title={fx.description}
                                         >
@@ -633,6 +809,15 @@ export function BrowserPanel() {
                                             <span className="flex-1 text-muted-foreground">
                                                 {fx.name}
                                             </span>
+                                            {isMobile && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleFXTapAdd(fx); }}
+                                                    className="p-1 hover:bg-surface-active rounded"
+                                                    aria-label="Add to track"
+                                                >
+                                                    <PlusCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                                                </button>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -664,7 +849,7 @@ export function BrowserPanel() {
     };
 
     return (
-        <aside className="flex w-browser flex-col border-r border-border bg-surface">
+        <aside className={`flex flex-col border-border bg-surface ${isMobile ? 'w-full h-full border-t' : 'w-browser border-r'}`}>
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
                 <h2 className="text-sm font-semibold">Browser</h2>

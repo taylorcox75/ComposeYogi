@@ -16,9 +16,11 @@ export function ThemeToggle() {
     }, []);
 
     if (!mounted) {
+        // Use a non-SVG placeholder — Dark Reader injects attributes into SVG elements,
+        // which causes a React hydration mismatch between SSR and the client DOM.
         return (
             <Button variant="ghost" size="icon-sm" disabled>
-                <Sun className="h-4 w-4" />
+                <span className="h-4 w-4 block" />
             </Button>
         );
     }

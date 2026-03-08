@@ -40,6 +40,7 @@ export {
     type ImportResult,
     type MidiImportPreview,
 } from './project-io';
+export { loadSampleAsAudioTake, loadUserSampleAsAudioTake } from './sample-loader';
 export {
     importAudioFile,
     importAudioFiles,

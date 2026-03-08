@@ -27,7 +27,7 @@ function HomePageContent() {
     return (
         <div className="min-h-screen bg-background flex flex-col">
             {/* Header */}
-            <header className="fixed top-0 right-0 z-50 flex items-center gap-3 p-4 sm:p-6">
+            <header className="fixed top-0 right-0 z-50 flex items-center gap-3 p-4 sm:p-6 [padding-top:max(1rem,env(safe-area-inset-top))]">
                 <a
                     href="https://github.com/AppsYogi-com/ComposeYogi"
                     target="_blank"

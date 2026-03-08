@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { Check, AlertCircle } from 'lucide-react';
 import { useProjectStore, useUIStore } from '@/lib/store';
+import { playoutManager } from '@/lib/audio';
 import { Button } from '@/components/ui/button';
 import {
     Tooltip,
@@ -10,7 +11,7 @@ import {
     TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { Clip, Note } from '@/types';
-import * as Tone from 'tone';
+
 
 // ============================================
 // Drum Sound Definitions (General MIDI Percussion)
@@ -129,7 +130,6 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
     const setEditorFocused = useUIStore((s) => s.setEditorFocused);
 
     const [_velocityEditing, setVelocityEditing] = useState<string | null>(null);
-    const [previewSynth, setPreviewSynth] = useState<Tone.MembraneSynth | null>(null);
     const [activePreset, setActivePreset] = useState<string | null>(null);
     const gridRef = useRef<HTMLDivElement>(null);
 
@@ -142,26 +142,6 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
     const totalSteps = clip.lengthBars * beatsPerBar * stepsPerBeat;
     const steps = Math.min(totalSteps, 64); // Cap at 64 steps for performance
 
-    // Initialize preview synth
-    useEffect(() => {
-        const synth = new Tone.MembraneSynth({
-            pitchDecay: 0.05,
-            octaves: 4,
-            oscillator: { type: 'sine' },
-            envelope: {
-                attack: 0.001,
-                decay: 0.4,
-                sustain: 0.01,
-                release: 0.4,
-            },
-        }).toDestination();
-        synth.volume.value = -10;
-        setPreviewSynth(synth);
-
-        return () => {
-            synth.dispose();
-        };
-    }, []);
 
     // Convert notes to grid state
     const gridState = useMemo(() => {
@@ -199,15 +179,10 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
                 velocity: 100,
             });
 
-            // Play preview
-            if (previewSynth) {
-                previewSynth.triggerAttackRelease(
-                    Tone.Frequency(sound.pitch, 'midi').toNote(),
-                    '16n'
-                );
-            }
+            // Play preview through the track's effects chain
+            playoutManager.previewNote(clip.id, sound.pitch, 0.1);
         }
-    }, [clip.id, gridState, deleteNote, addNote, previewSynth]);
+    }, [clip.id, gridState, deleteNote, addNote]);
 
     // Handle velocity change via drag
     const _handleVelocityDrag = useCallback((noteId: string, deltaY: number) => {
@@ -218,15 +193,11 @@ export function DrumSequencer({ clip }: DrumSequencerProps) {
         updateNote(clip.id, noteId, { velocity: newVelocity });
     }, [clip.id, clip.notes, updateNote]);
 
-    // Preview sound on row hover
+    // Preview sound on row label click
     const previewSound = useCallback((rowIndex: number) => {
-        if (!previewSynth) return;
         const sound = DRUM_SOUNDS[rowIndex];
-        previewSynth.triggerAttackRelease(
-            Tone.Frequency(sound.pitch, 'midi').toNote(),
-            '16n'
-        );
-    }, [previewSynth]);
+        playoutManager.previewNote(clip.id, sound.pitch, 0.1);
+    }, [clip.id]);
 
     // Apply preset pattern
     const applyPreset = useCallback((presetName: string) => {

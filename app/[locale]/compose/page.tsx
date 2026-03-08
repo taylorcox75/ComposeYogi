@@ -14,11 +14,32 @@ import { Inspector, InspectorCollapsedBar } from '@/components/compose/Inspector
 import { EditorPanel, EditorCollapsedBar } from '@/components/compose/EditorPanel';
 import { TrackList } from '@/components/compose/TrackList';
 import { AudioVisualizer, VisualizerCollapsedBar } from '@/components/compose/AudioVisualizer';
+import { LayoutTemplate, AudioWaveform, SlidersHorizontal } from 'lucide-react';
 import { LatencyCalibrationModal } from '@/components/compose/LatencyCalibrationModal';
 import { ProjectSelector } from '@/components/compose/ProjectSelector';
-import { useAutosave } from '@/hooks';
+import { useAutosave, useIsMobile } from '@/hooks';
 import { listProjects, loadProject, loadAudioTakesForClip } from '@/lib/persistence';
 import { loadDemoTemplate } from '@/lib/templates';
+import { toast } from 'sonner';
+import { MusicWave } from '@/components/MusicWave';
+import { Separator } from '@/components/ui/separator';
+import Link from 'next/link';
+
+// Lightweight static skeleton shown before the project loads.
+// Must NOT use any Zustand store hooks — those trigger Zundo's unstable
+// getServerSnapshot and cause an infinite loop during SSR/hydration.
+function TransportSkeleton() {
+    return (
+        <header className="flex h-transport items-center border-b border-border bg-card px-4 gap-3">
+            <Link href="/" className="flex items-center gap-2 text-accent hover:opacity-80 transition-opacity">
+                <MusicWave barCount={4} color="accent" className="h-5" />
+                <span className="text-sm font-semibold tracking-tight">ComposeYogi</span>
+            </Link>
+            <Separator orientation="vertical" className="h-6" />
+            <div className="h-3 w-28 animate-pulse rounded bg-muted" />
+        </header>
+    );
+}
 
 // Loading fallback for Suspense
 function ComposeLoading() {
@@ -52,6 +73,9 @@ function ComposePageContent() {
     // Autosave hook
     const { status: saveStatus, statusText: saveStatusText } = useAutosave();
 
+    // Mobile detection
+    const isMobile = useIsMobile();
+
     // Store hooks
     const project = useProjectStore((s) => s.project);
     const createProject = useProjectStore((s) => s.createProject);
@@ -73,6 +97,15 @@ function ComposePageContent() {
     const zoomOut = useUIStore((s) => s.zoomOut);
     const selectedClipIds = useUIStore((s) => s.selectedClipIds);
     const clearSelection = useUIStore((s) => s.clearSelection);
+
+    // On mobile: auto-close panels to give the timeline maximum space
+    useEffect(() => {
+        if (!isMobile) return;
+        if (browserOpen) toggleBrowser();
+        if (inspectorOpen) toggleInspector();
+        if (visualizerOpen) toggleVisualizer();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isMobile]); // Runs once when mobile detection resolves; intentionally omits toggle fns
 
     // Initialize project from IndexedDB or create new
     useEffect(() => {
@@ -218,16 +251,14 @@ function ComposePageContent() {
         }
     }, [initAudio, isPlaying, pause, play, isPlayoutScheduled, project, scheduleClips]);
 
-    // Auto-play demo templates after 1.5 seconds
+    // Notify user when a demo template is loaded (auto-play via setTimeout fails on iOS
+    // because Tone.start() requires a direct user gesture — show a prompt instead)
     useEffect(() => {
         if (shouldAutoPlay && project && !isInitializing) {
-            const timer = setTimeout(async () => {
-                setShouldAutoPlay(false);
-                await handlePlay();
-            }, 1500);
-            return () => clearTimeout(timer);
+            setShouldAutoPlay(false);
+            toast('Demo loaded! Press Play to start.', { duration: 4000 });
         }
-    }, [shouldAutoPlay, project, isInitializing, handlePlay]);
+    }, [shouldAutoPlay, project, isInitializing]);
 
     // ============================
     // Keyboard shortcuts
@@ -303,55 +334,123 @@ function ComposePageContent() {
         playoutManager.setLatencyCompensation(result.inputLatencyMs);
     }, []);
 
-    if (!project || isInitializing) {
-        return (
-            <div className="flex h-full items-center justify-center">
-                <div className="text-center">
-                    <div className="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent mx-auto" />
-                    <p className="text-muted-foreground">
-                        {isInitializing ? 'Loading project...' : 'Creating project...'}
-                    </p>
-                </div>
-            </div>
-        );
-    }
-
     return (
         <>
-            {/* Top: Transport Bar */}
-            <Transport
-                onPlayPause={handlePlay}
-                onStop={() => {
-                    stop();
-                    audioEngine.stop();
-                }}
-                isAudioReady={isAudioReady}
-                onOpenSettings={() => setShowLatencyModal(true)}
-                onOpenProjects={() => setShowProjectsModal(true)}
-                saveStatus={saveStatus}
-                saveStatusText={saveStatusText}
-            />
+            {/* Top: Transport Bar — static skeleton until project loads to avoid
+                mounting Zustand hooks (Zundo) before the store is ready */}
+            {(!project || isInitializing) ? <TransportSkeleton /> : (
+                <Transport
+                    onPlayPause={handlePlay}
+                    onStop={() => {
+                        stop();
+                        audioEngine.stop();
+                    }}
+                    isAudioReady={isAudioReady}
+                    onOpenSettings={() => setShowLatencyModal(true)}
+                    onOpenProjects={() => setShowProjectsModal(true)}
+                    saveStatus={saveStatus}
+                    saveStatusText={saveStatusText}
+                />
+            )}
 
             {/* Main content area */}
-            <div className="flex flex-1 overflow-hidden">
-                {/* Left: Browser Panel */}
-                {browserOpen ? <BrowserPanel /> : <BrowserCollapsedBar />}
-
-                {/* Center: Timeline + Tracks */}
-                <div className="flex flex-1 flex-col overflow-hidden">
-                    {/* Track list with integrated ruler */}
+            {(!project || isInitializing) ? (
+                <div className="flex flex-1 items-center justify-center">
+                    <div className="text-center">
+                        <div className="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent mx-auto" />
+                        <p className="text-muted-foreground">
+                            {isInitializing ? 'Loading project...' : 'Creating project...'}
+                        </p>
+                    </div>
+                </div>
+            ) : isMobile ? (
+                /* ── Mobile layout ── */
+                <div className="flex flex-1 flex-col overflow-hidden relative"
+                    style={{ paddingBottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))' }}>
+                    {/* Full-width track list */}
                     <TrackList />
 
-                    {/* Audio Visualizer */}
-                    {visualizerOpen ? <AudioVisualizer /> : <VisualizerCollapsedBar />}
-
-                    {/* Bottom: Editor Panel (Piano Roll / Step Sequencer) */}
+                    {/* Editor panel stays in-flow at the bottom */}
                     {editorOpen ? <EditorPanel /> : <EditorCollapsedBar />}
-                </div>
 
-                {/* Right: Inspector Panel */}
-                {inspectorOpen ? <Inspector /> : <InspectorCollapsedBar />}
-            </div>
+                    {/* Panel overlays — positioned just above the bottom nav */}
+                    {(browserOpen || visualizerOpen || inspectorOpen) && (
+                        <div
+                            className="fixed inset-0 z-40 bg-black/40"
+                            onClick={() => {
+                                if (browserOpen) toggleBrowser();
+                                if (visualizerOpen) toggleVisualizer();
+                                if (inspectorOpen) toggleInspector();
+                            }}
+                        />
+                    )}
+                    {browserOpen && (
+                        <div className="fixed inset-x-0 z-50 flex flex-col bg-surface border-t border-border overflow-hidden"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', maxHeight: '60vh', minHeight: '40vh' }}>
+                            <BrowserPanel />
+                        </div>
+                    )}
+                    {visualizerOpen && (
+                        <div className="fixed inset-x-0 z-50 border-t border-border bg-background overflow-hidden"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))' }}>
+                            <AudioVisualizer />
+                        </div>
+                    )}
+                    {inspectorOpen && (
+                        <div className="fixed inset-x-0 z-50 flex flex-col bg-card border-t border-border overflow-hidden"
+                            style={{ bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))', maxHeight: '60vh', minHeight: '40vh' }}>
+                            <Inspector />
+                        </div>
+                    )}
+
+                    {/* Mobile bottom nav bar */}
+                    <nav className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t border-border bg-card"
+                        style={{ height: 'calc(3rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+                        <button
+                            onClick={toggleBrowser}
+                            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${browserOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                        >
+                            <LayoutTemplate className="h-5 w-5" />
+                            <span className="text-[10px]">Browser</span>
+                        </button>
+                        <button
+                            onClick={toggleVisualizer}
+                            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${visualizerOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                        >
+                            <AudioWaveform className="h-5 w-5" />
+                            <span className="text-[10px]">Visualizer</span>
+                        </button>
+                        <button
+                            onClick={toggleInspector}
+                            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${inspectorOpen ? 'text-accent' : 'text-muted-foreground'}`}
+                        >
+                            <SlidersHorizontal className="h-5 w-5" />
+                            <span className="text-[10px]">Inspector</span>
+                        </button>
+                    </nav>
+                </div>
+            ) : (
+                /* ── Desktop layout ── */
+                <div className="flex flex-1 overflow-hidden">
+                    {/* Left: Browser Panel */}
+                    {browserOpen ? <BrowserPanel /> : <BrowserCollapsedBar />}
+
+                    {/* Center: Timeline + Tracks */}
+                    <div className="flex flex-1 flex-col overflow-hidden">
+                        {/* Track list with integrated ruler */}
+                        <TrackList />
+
+                        {/* Audio Visualizer */}
+                        {visualizerOpen ? <AudioVisualizer /> : <VisualizerCollapsedBar />}
+
+                        {/* Bottom: Editor Panel (Piano Roll / Step Sequencer) */}
+                        {editorOpen ? <EditorPanel /> : <EditorCollapsedBar />}
+                    </div>
+
+                    {/* Right: Inspector Panel */}
+                    {inspectorOpen ? <Inspector /> : <InspectorCollapsedBar />}
+                </div>
+            )}
 
             {/* Latency Calibration Modal */}
             <LatencyCalibrationModal

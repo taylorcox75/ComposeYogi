@@ -259,6 +259,8 @@ body {
     transition: box-shadow 150ms ease-out;
     user-select: none;
     /* Prevent text selection on Shift+click */
+    touch-action: none;
+    /* Let pointer events fire; prevent iOS scroll from intercepting clip drag */
 }
 
 .clip:hover {
@@ -282,6 +284,8 @@ body {
     background-color: transparent;
     color: hsl(var(--foreground));
     transition: background-color 120ms ease-out, color 120ms ease-out;
+    touch-action: manipulation;
+    /* Eliminate 300ms tap delay on iOS */
 }
 
 .transport-btn:hover {

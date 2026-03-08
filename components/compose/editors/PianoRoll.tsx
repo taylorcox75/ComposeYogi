@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState, useEffect, memo } from 'react';
 import { ZoomIn, ZoomOut, AlertCircle } from 'lucide-react';
 import { useProjectStore, useUIStore } from '@/lib/store';
+import { playoutManager } from '@/lib/audio';
 import { Button } from '@/components/ui/button';
 import {
     Select,
@@ -12,7 +13,6 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import type { Clip, Note, MusicalScale } from '@/types';
-import * as Tone from 'tone';
 
 // ============================================
 // Constants
@@ -55,7 +55,6 @@ export function PianoRoll({ clip }: PianoRollProps) {
     const [snap, setSnap] = useState<SnapValue>('1/16');
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PIXELS_PER_BEAT);
     const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
-    const [previewSynth, setPreviewSynth] = useState<Tone.PolySynth | null>(null);
     const [isDragging, setIsDragging] = useState(false);
 
     // Resize state
@@ -100,25 +99,6 @@ export function PianoRoll({ clip }: PianoRollProps) {
         const noteIndex = pitch % 12;
         return scaleNotes.has(noteIndex);
     }, [scaleNotes]);
-
-    // Initialize preview synth
-    useEffect(() => {
-        const synth = new Tone.PolySynth(Tone.Synth, {
-            oscillator: { type: 'triangle' },
-            envelope: {
-                attack: 0.02,
-                decay: 0.1,
-                sustain: 0.3,
-                release: 0.3,
-            },
-        }).toDestination();
-        synth.volume.value = -12;
-        setPreviewSynth(synth);
-
-        return () => {
-            synth.dispose();
-        };
-    }, []);
 
     // Convert MIDI pitch to row index (higher pitches at top)
     const pitchToRow = useCallback((pitch: number) => {
@@ -192,28 +172,21 @@ export function PianoRoll({ clip }: PianoRollProps) {
                 velocity: 100,
             });
 
-            if (newNote && previewSynth) {
-                previewSynth.triggerAttackRelease(
-                    Tone.Frequency(pitch, 'midi').toNote(),
-                    snapBeats * (60 / (project?.bpm || 120))
-                );
+            if (newNote) {
+                const durationSec = snapBeats * (60 / (project?.bpm || 120));
+                playoutManager.previewNote(clip.id, pitch, durationSec, 100 / 127);
             }
         }
     }, [
         snapBeats, pixelsPerBeat, clip.id, clip.notes, totalBeats,
         pitchToRow, rowToPitch, snapToGrid, addNote, deleteNote,
-        previewSynth, project?.bpm, isDragging
+        project?.bpm, isDragging
     ]);
 
     // Handle key preview
     const handleKeyClick = useCallback((pitch: number) => {
-        if (previewSynth) {
-            previewSynth.triggerAttackRelease(
-                Tone.Frequency(pitch, 'midi').toNote(),
-                '8n'
-            );
-        }
-    }, [previewSynth]);
+        playoutManager.previewNote(clip.id, pitch, 0.3, 0.8);
+    }, [clip.id]);
 
     // Delete selected notes
     const handleDeleteSelected = useCallback(() => {
