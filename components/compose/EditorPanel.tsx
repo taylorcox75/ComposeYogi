@@ -23,18 +23,21 @@ type EditorMode = 'piano-roll' | 'drum-sequencer' | 'waveform';
 
 export function EditorPanel() {
     const [mode, setMode] = useState<EditorMode>('piano-roll');
-    const selectedClipIds = useUIStore((s) => s.selectedClipIds);
     const toggleEditor = useUIStore((s) => s.toggleEditor);
+    // Use activeEditorClipId as the primary source — it is set by openEditor() and
+    // only cleared by closeEditor(). It is NOT affected by selectClip() or
+    // clearSelection(), so the editor keeps its clip context when the user clicks
+    // elsewhere in the timeline.
+    const activeEditorClipId = useUIStore((s) => s.activeEditorClipId);
     const project = useProjectStore((s) => s.project);
     const isMobile = useIsMobile();
 
-    const selectedClipId = selectedClipIds[0] || null;
-    const selectedClip = project?.clips.find((c) => c.id === selectedClipId);
+    const activeClip = project?.clips.find((c) => c.id === activeEditorClipId) ?? null;
 
     // Auto-switch editor mode based on clip type
     useEffect(() => {
-        if (selectedClip) {
-            switch (selectedClip.type) {
+        if (activeClip) {
+            switch (activeClip.type) {
                 case 'drum':
                     setMode('drum-sequencer');
                     break;
@@ -48,7 +51,7 @@ export function EditorPanel() {
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedClip?.id, selectedClip?.type]);
+    }, [activeClip?.id, activeClip?.type]);
 
     return (
         <div className={`flex flex-col border-t border-border bg-surface ${isMobile ? 'flex-1 min-h-0' : 'h-editor'}`}>
@@ -86,9 +89,9 @@ export function EditorPanel() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    {selectedClip && (
+                    {activeClip && (
                         <span className="text-xs text-muted-foreground">
-                            Editing: {selectedClip.name}
+                            Editing: {activeClip.name}
                         </span>
                     )}
                     <Tooltip>
@@ -111,14 +114,14 @@ export function EditorPanel() {
 
             {/* Editor content */}
             <div className="flex-1 overflow-hidden">
-                {!selectedClip ? (
+                {!activeClip ? (
                     <div className="flex h-full items-center justify-center">
                         <p className="text-sm text-muted-foreground">
-                            Select a clip to edit
+                            Double-tap a clip to edit
                         </p>
                     </div>
                 ) : (
-                    <EditorContent mode={mode} clip={selectedClip} />
+                    <EditorContent mode={mode} clip={activeClip} />
                 )}
             </div>
         </div>

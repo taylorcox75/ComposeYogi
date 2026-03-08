@@ -57,6 +57,11 @@ export function PianoRoll({ clip }: PianoRollProps) {
     const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
     const [isDragging, setIsDragging] = useState(false);
 
+    // Reset note selection when the edited clip changes
+    useEffect(() => {
+        setSelectedNoteIds(new Set());
+    }, [clip.id]);
+
     // Resize state
     const [resizingNote, setResizingNote] = useState<{ id: string; startDuration: number; startX: number } | null>(null);
 
