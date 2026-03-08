@@ -1356,7 +1356,8 @@ function SortableTrackHeader(props: TrackHeaderProps) {
                         value={props.track.volume}
                         onChange={(e) => props.onVolumeChange(parseFloat(e.target.value))}
                         onClick={(e) => e.stopPropagation()}
-                        className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-muted [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                        className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-muted [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                        style={{ touchAction: 'pan-x' }}
                     />
                 </div>
 

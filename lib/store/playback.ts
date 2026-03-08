@@ -178,11 +178,12 @@ export const usePlaybackStore = create<PlaybackStore>()(
             }
         },
 
-        // Position
-        seekToBar: (bar) => {
-            const clampedBar = Math.max(0, bar);
-            playbackRefs.audioStartPositionRef.current = clampedBar;
-            set({ currentBar: clampedBar, currentBeat: 0 });
+        // seekToBar is intentionally not implemented here because the store
+        // does not hold BPM (that lives in the project store). All seek operations
+        // should use audioEngine.seek(seconds) + seekTo(seconds) instead.
+        // This stub exists only to satisfy the interface; callers should use seekTo.
+        seekToBar: (_bar) => {
+            // No-op: use audioEngine.seekToBar(bar) + seekTo(seconds) at the call site.
         },
 
         setPosition: (bar, beat) => {
